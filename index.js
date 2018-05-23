@@ -12,8 +12,6 @@ const conf = {
 }
 
 let server = null
-let buffer = Buffer(32)
-let keyBuffer = Buffer(32)
 
 async function start(argv) {
   if (server) { return false }
