@@ -36,7 +36,7 @@ async function start(argv) {
     debug("error:", err)
   }
 
-  function onpeer(peer, info) {
+  function onpeer(peer) {
     info("Got peer : ",peer)
   }
 
