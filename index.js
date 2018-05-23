@@ -1,22 +1,45 @@
 'use strict'
 
 const { info, warn, error } = require('ara-console')
+const network = require('ara-identity-archiver/network')
+const crypto = require('ara-crypto')
 const extend = require('extend')
 const debug = require('debug')('ara:network:node:identity-archiver')
 
 const conf = {
+  port: 8000,
+  key: null
 }
 
 let server = null
+let buffer = Buffer(32)
+let keyBuffer = Buffer(32)
 
 async function start(argv) {
   if (server) { return false }
+  server = network.createNetwork(conf)
+  server = server.swarm
+  const discoveryKey = crypto.discoveryKey(Buffer.alloc(32).fill(conf.key))
+  server.listen(conf.port)
+  server.join(discoveryKey)
 
-  return true
+  server.on('peer',onpeer)
+  server.on('connection',onconnection)
+  server.on('error',onerror)
+  server.on('listening',onlistening)
+  server.on('close',onclose)
+
+  function onconnection() {
+    info("Connected to peer : ")
+  }
 
   function onerror(err) {
     warn("identity-archiver: error:", err.message)
     debug("error:", err)
+  }
+
+  function onpeer(peer, info) {
+    info("Got peer : ",peer)
   }
 
   function onclose() {
@@ -27,21 +50,32 @@ async function start(argv) {
     const { port } = server.address()
     info("identity-archiver: Listening on port %s", port)
   }
+
+  return true
 }
 
 async function stop(argv) {
   if (null == server) { return false }
   warn("identity-archiver: Stopping server")
   server.close(onclose)
-  return true
+
   function onclose() {
     server = null
   }
+  return true
 }
 
 async function configure(opts, program) {
   if (program) {
     const { argv } = program
+      .option('key',{
+        type: 'string',
+        alias: 'k',
+        describe: 'ARA network key'
+      })
+    if (argv.key) {
+    opts.key = argv.key
+    }
     if (argv.port) {
       opts.port = argv.port
     }
