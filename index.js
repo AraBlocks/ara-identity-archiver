@@ -1,7 +1,7 @@
 'use strict'
 
 const { info, warn, error } = require('ara-console')
-const network = require('ara-identity-archiver/network')
+const { createNetwork } = require('ara-identity-archiver/network')
 const through = require('through2')
 const crypto = require('ara-crypto')
 const extend = require('extend')
@@ -13,16 +13,23 @@ const conf = {
   port: 8000,
   key: null,
   keystore: null,
-  dns: { loopback: true },
+  dns: { loopback: false },
 }
 
-let server = null
+let network = null
 
 async function start(argv) {
-  if (server) { return false }
+  if (network && network.swarm) {
+    return false
+  }
 
   const keystore = {}
-  let discoveryKey = null
+  const keys = {
+    remote: null,
+    client: null,
+    network: null,
+    discovery: null,
+  }
 
   if (null == conf.key || 'string' != typeof conf.key) {
     throw new TypeError("Expecting network key to be a string.")
@@ -39,7 +46,21 @@ async function start(argv) {
     try {
       const json = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
       const buffer = crypto.decrypt(json, {key: conf.key})
-      discoveryKey = buffer.slice(0, 32)
+      keys.discovery = buffer.slice(0, 32)
+      keys.remote = {
+        publicKey: buffer.slice(32, 64),
+        secretKey: buffer.slice(64, 128),
+      }
+
+      keys.client = {
+        publicKey: buffer.slice(128, 160),
+        secretKey: buffer.slice(160, 224),
+      }
+
+      keys.network = {
+        publicKey: buffer.slice(224, 256),
+        secretKey: buffer.slice(256, 318),
+      }
     } catch (err) {
       debug(err)
       throw new Error(`Unable to read keystore file '${conf.keystore}'.`)
@@ -48,28 +69,36 @@ async function start(argv) {
     throw new TypeError("Missing keystore file path.")
   }
 
-
   Object.assign(conf, {stream, onauthorize})
-  Object.assign(conf, {network: { key: discoveryKey }})
+  Object.assign(conf, {network: { key: keys.discovery }})
+  Object.assign(conf, {
+    client: keys.client,
+    remote: keys.remote,
+  })
 
-  server = network.createNetwork(conf)
-  server = server.swarm
+  network = createNetwork(conf)
 
-  server.join(discoveryKey)
-  server.listen(conf.port)
+  network.swarm.join(keys.discovery)
+  network.swarm.listen(conf.port)
 
-  server.on('connection', onconnection)
-  server.on('listening', onlistening)
-  server.on('close', onclose)
-  server.on('error', onerror)
-  server.on('peer', onpeer)
+  network.swarm.on('connection', onconnection)
+  network.swarm.on('listening', onlistening)
+  network.swarm.on('close', onclose)
+  network.swarm.on('error', onerror)
+  network.swarm.on('peer', onpeer)
 
   function stream(peer) {
     return through()
   }
 
   function onauthorize(id, done) {
-    console.log('authorize', id);
+    if (0 == Buffer.compare(id, keys.remote.publicKey)) {
+      info("Authorizing peer:", id.toString('hex'))
+      done(null, true)
+    } else {
+      info("Denying peer:", id.toString('hex'))
+      done(null, false)
+    }
   }
 
   function onconnection() {
@@ -79,7 +108,7 @@ async function start(argv) {
   function onerror(err) {
     debug("error:", err)
     if (err && 'EADDRINUSE' == err.code) {
-      return server.listen(0)
+      return network.swarm.listen(0)
     } else {
       warn("identity-archiver: error:", err.message)
     }
@@ -94,7 +123,7 @@ async function start(argv) {
   }
 
   function onlistening() {
-    const { port } = server.address()
+    const { port } = network.swarm.address()
     info("identity-archiver: Listening on port %s", port)
   }
 
@@ -102,14 +131,18 @@ async function start(argv) {
 }
 
 async function stop(argv) {
-  if (null == server) { return false }
-  warn("identity-archiver: Stopping server")
-  server.close(onclose)
+  if (null == network || null == network.swarm) {
+    return false
+  }
+
+  warn("identity-archiver: Stopping network.swarm")
+  network.swarm.close(onclose)
+
+  return true
 
   function onclose() {
-    server = null
+    network.swarm = null
   }
-  return true
 }
 
 async function configure(opts, program) {
@@ -135,7 +168,7 @@ async function configure(opts, program) {
 }
 
 async function getInstance(argv) {
-  return server
+  return network.swarm
 }
 
 module.exports = {
