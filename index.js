@@ -37,10 +37,11 @@ async function start(argv) {
     }
 
     try {
-      const json = JSON.parse(await pify(fs.readfile)(conf.keystore, 'utf8'))
+      const json = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
       const buffer = crypto.decrypt(json, {key: conf.key})
       discoveryKey = buffer.slice(0, 32)
     } catch (err) {
+      debug(err)
       throw new Error(`Unable to read keystore file '${conf.keystore}'.`)
     }
   } else {
