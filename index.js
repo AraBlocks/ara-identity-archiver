@@ -2,42 +2,90 @@
 
 const { info, warn, error } = require('ara-console')
 const network = require('ara-identity-archiver/network')
+const through = require('through2')
 const crypto = require('ara-crypto')
 const extend = require('extend')
 const debug = require('debug')('ara:network:node:identity-archiver')
+const pify = require('pify')
+const fs = require('fs')
 
 const conf = {
   port: 8000,
-  key: null
+  key: null,
+  keystore: null,
+  dns: { loopback: true },
 }
 
 let server = null
 
 async function start(argv) {
   if (server) { return false }
+
+  const keystore = {}
+  let discoveryKey = null
+
+  if (null == conf.key || 'string' != typeof conf.key) {
+    throw new TypeError("Expecting network key to be a string.")
+  } else {
+    conf.key = Buffer.from(conf.key, 'hex')
+  }
+
+  if (conf.keystore && 'string' == typeof conf.keystore) {
+    try { await pify(fs.access)(conf.keystore) }
+    catch (err) {
+      throw new Error(`Unable to access keystore file '${conf.keystore}'.`)
+    }
+
+    try {
+      const json = JSON.parse(await pify(fs.readfile)(conf.keystore, 'utf8'))
+      const buffer = crypto.decrypt(json, {key: conf.key})
+      discoveryKey = buffer.slice(0, 32)
+    } catch (err) {
+      throw new Error(`Unable to read keystore file '${conf.keystore}'.`)
+    }
+  } else {
+    throw new TypeError("Missing keystore file path.")
+  }
+
+
+  Object.assign(conf, {stream, onauthorize})
+  Object.assign(conf, {network: { key: discoveryKey }})
+
   server = network.createNetwork(conf)
   server = server.swarm
-  const discoveryKey = crypto.discoveryKey(Buffer.alloc(32).fill(conf.key))
-  server.listen(conf.port)
-  server.join(discoveryKey)
 
-  server.on('peer',onpeer)
-  server.on('connection',onconnection)
-  server.on('error',onerror)
-  server.on('listening',onlistening)
-  server.on('close',onclose)
+  server.join(discoveryKey)
+  server.listen(conf.port)
+
+  server.on('connection', onconnection)
+  server.on('listening', onlistening)
+  server.on('close', onclose)
+  server.on('error', onerror)
+  server.on('peer', onpeer)
+
+  function stream(peer) {
+    return through()
+  }
+
+  function onauthorize(id, done) {
+    console.log('authorize', id);
+  }
 
   function onconnection() {
-    info("Connected to peer : ")
+    info("Connected to peer:")
   }
 
   function onerror(err) {
-    warn("identity-archiver: error:", err.message)
     debug("error:", err)
+    if (err && 'EADDRINUSE' == err.code) {
+      return server.listen(0)
+    } else {
+      warn("identity-archiver: error:", err.message)
+    }
   }
 
   function onpeer(peer) {
-    info("Got peer : ",peer)
+    info("Got peer:", peer.id)
   }
 
   function onclose() {
@@ -66,18 +114,22 @@ async function stop(argv) {
 async function configure(opts, program) {
   if (program) {
     const { argv } = program
-      .option('key',{
+      .option('key', {
         type: 'string',
         alias: 'k',
-        describe: 'ARA network key'
+        describe: 'ARA network key hex value.'
       })
-    if (argv.key) {
-    opts.key = argv.key
-    }
-    if (argv.port) {
-      opts.port = argv.port
-    }
+      .option('keystore', {
+        type: 'string',
+        alias: 'K',
+        describe: 'ARA network key store object'
+      })
+
+    if (argv.keystore) { opts.keystore = argv.keystore }
+    if (argv.port) { opts.port = argv.port }
+    if (argv.key) { opts.key = argv.key }
   }
+
   return extend(true, conf, opts)
 }
 
