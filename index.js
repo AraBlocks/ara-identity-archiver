@@ -27,7 +27,7 @@ async function start(argv) {
   if (null == conf.key || 'string' != typeof conf.key) {
     throw new TypeError("Expecting network key to be a string.")
   } else {
-    conf.key = Buffer.from(conf.key, 'hex')
+    conf.key = Buffer.alloc(16).fill(conf.key)
   }
 
   if (conf.keystore && 'string' == typeof conf.keystore) {
