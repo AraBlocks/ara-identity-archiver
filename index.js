@@ -2,18 +2,22 @@
 
 const { info, warn, error } = require('ara-console')
 const { createNetwork } = require('ara-identity-archiver/network')
+const { createCFS } = require('cfsnet/create')
 const through = require('through2')
+const secrets = require('ara-network/secrets')
 const crypto = require('ara-crypto')
 const extend = require('extend')
 const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
+const pump = require('pump')
+const lpm = require('length-prefixed-message')
 const fs = require('fs')
 
 const conf = {
   port: 8000,
   key: null,
   keystore: null,
-  dns: { loopback: false },
+  dns: { loopback: true },
 }
 
 let network = null
@@ -25,10 +29,10 @@ async function start(argv) {
 
   const keystore = {}
   const keys = {
+    discoveryKey: null,
     remote: null,
     client: null,
     network: null,
-    discovery: null,
   }
 
   if (null == conf.key || 'string' != typeof conf.key) {
@@ -44,23 +48,8 @@ async function start(argv) {
     }
 
     try {
-      const json = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
-      const buffer = crypto.decrypt(json, {key: conf.key})
-      keys.discovery = buffer.slice(0, 32)
-      keys.remote = {
-        publicKey: buffer.slice(32, 64),
-        secretKey: buffer.slice(64, 128),
-      }
-
-      keys.client = {
-        publicKey: buffer.slice(128, 160),
-        secretKey: buffer.slice(160, 224),
-      }
-
-      keys.network = {
-        publicKey: buffer.slice(224, 256),
-        secretKey: buffer.slice(256, 318),
-      }
+      const keystore = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
+      Object.assign(keys, secrets.decrypt({keystore}, {key: conf.key}))
     } catch (err) {
       debug(err)
       throw new Error(`Unable to read keystore file '${conf.keystore}'.`)
@@ -69,16 +58,18 @@ async function start(argv) {
     throw new TypeError("Missing keystore file path.")
   }
 
-  Object.assign(conf, {stream, onauthorize})
-  Object.assign(conf, {network: { key: keys.discovery }})
+  Object.assign(conf, {onstream})
+  Object.assign(conf, {network: { key: keys.discoveryKey }})
   Object.assign(conf, {
     client: keys.client,
     remote: keys.remote,
   })
 
+  console.log('discovery key:', keys.discoveryKey);
   network = createNetwork(conf)
 
-  network.swarm.join(keys.discovery)
+  network.swarm.setMaxListeners(Infinity)
+  network.swarm.join(keys.discoveryKey)
   network.swarm.listen(conf.port)
 
   network.swarm.on('connection', onconnection)
@@ -87,8 +78,59 @@ async function start(argv) {
   network.swarm.on('error', onerror)
   network.swarm.on('peer', onpeer)
 
-  function stream(peer) {
-    return through()
+  function onstream(connection, info) {
+    const term = Buffer.from([0xdef])
+    const state = {}
+    connection.once('readable', () => {
+      lpm.read(connection, onpkx)
+    })
+
+    function onpkx(pkx) {
+      if (0 == Buffer.compare(term, pkx)) { return }
+      console.log('got pkx', pkx);
+      state.pkx = Buffer.from(pkx)
+      lpm.write(connection, crypto.blake2b(pkx))
+      connection.once('readable', () => {
+        lpm.read(connection, onidx)
+      })
+    }
+
+    function onidx(idx) {
+      if (0 == Buffer.compare(term, idx)) { return }
+
+      console.log('got idx', idx);
+      state.idx = Buffer.from(idx)
+      lpm.write(connection, crypto.blake2b(idx))
+      connection.once('readable', () => {
+        lpm.read(connection, onfin)
+      })
+    }
+
+    function onfin(fin) {
+      if (0 == Buffer.compare(term, fin)) {
+        const ack = Buffer.concat([state.pkx, state.idx])
+        const signature = crypto.blake2b(ack)
+        console.log('got fin (0xdef): %s', signature.toString('hex'))
+        lpm.write(connection, signature)
+        connection.once('readable', async () => {
+          const id = state.idx.slice(3)
+          const key = state.pkx.slice(3)
+          const cfs = await createCFS({id, key})
+          const stream = cfs.replicate({download: true, upload: true})
+
+          console.log('archive:', id.toString('utf8'), key.toString('hex'))
+          cfs.on('update', () => {
+            console.log('did sync:');
+            cfs.readdir('.', console.log)
+            cfs.readFile('ddo.json', 'utf8', console.log)
+          })
+
+          pump(connection, stream, connection, (err) => {
+            if (err) { console.error(err) }
+          })
+        })
+      }
+    }
   }
 
   function onauthorize(id, done) {
