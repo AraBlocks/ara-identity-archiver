@@ -22,8 +22,11 @@
     "ara-console": "github:arablocks/ara-console",
     "ara-crypto": "github:arablocks/ara-crypto",
     "ara-identity-archiver": "github:arablocks/ara-identity-archiver",
+    "cfsnet": "github:arablocks/cfsnet",
     "debug": "^3.1.0",
     "extend": "^3.0.1",
+    "length-prefixed-message": "^3.0.3",
+    "pump": "^3.0.0",
     "through2": "^2.0.3"
   },
   "devDependencies": {},
