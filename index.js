@@ -11,6 +11,7 @@ const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
 const pump = require('pump')
 const lpm = require('length-prefixed-message')
+const pkg = require('./package')
 const fs = require('fs')
 
 const conf = {
@@ -48,7 +49,7 @@ async function start(argv) {
     }
 
     try {
-      const keystore = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
+      const { keystore } = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
       Object.assign(keys, secrets.decrypt({keystore}, {key: conf.key}))
     } catch (err) {
       debug(err)
@@ -59,13 +60,14 @@ async function start(argv) {
   }
 
   Object.assign(conf, {onstream})
-  Object.assign(conf, {network: { key: keys.discoveryKey }})
+  Object.assign(conf, {discoveryKey: keys.discoveryKey})
   Object.assign(conf, {
+    network: keys.network,
     client: keys.client,
     remote: keys.remote,
   })
 
-  console.log('discovery key:', keys.discoveryKey);
+  info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
   network = createNetwork(conf)
 
   network.swarm.setMaxListeners(Infinity)
@@ -78,57 +80,87 @@ async function start(argv) {
   network.swarm.on('error', onerror)
   network.swarm.on('peer', onpeer)
 
-  function onstream(connection, info) {
+  function onstream(connection, peer) {
+    info("%s: Got stream", pkg.name, info)
     const term = Buffer.from([0xdef])
     const state = {}
     connection.once('readable', () => {
+      info("%s: Reading PKX in from connection", pkg.name, peer.host)
       lpm.read(connection, onpkx)
     })
 
     function onpkx(pkx) {
       if (0 == Buffer.compare(term, pkx)) { return }
-      console.log('got pkx', pkx);
+      info("%s: Got PKX", pkx.toString())
       state.pkx = Buffer.from(pkx)
       lpm.write(connection, crypto.blake2b(pkx))
       connection.once('readable', () => {
+        info("%s: Reading IDX in from connection", pkg.name, peer.host)
         lpm.read(connection, onidx)
       })
     }
 
     function onidx(idx) {
       if (0 == Buffer.compare(term, idx)) { return }
-
-      console.log('got idx', idx);
+      info("%s: Got IDX", idx.toString())
       state.idx = Buffer.from(idx)
       lpm.write(connection, crypto.blake2b(idx))
       connection.once('readable', () => {
+        info("%s: Reading FIN in from connection", pkg.name, peer.host)
         lpm.read(connection, onfin)
       })
     }
 
-    function onfin(fin) {
+    async function onfin(fin) {
       if (0 == Buffer.compare(term, fin)) {
         const ack = Buffer.concat([state.pkx, state.idx])
         const signature = crypto.blake2b(ack)
-        console.log('got fin (0xdef): %s', signature.toString('hex'))
+
+        info("%s: Got FIN(0xDEF)", fin.toString(), signature.toString('hex'))
         lpm.write(connection, signature)
-        connection.once('readable', async () => {
-          const id = state.idx.slice(3)
-          const key = state.pkx.slice(3)
-          const cfs = await createCFS({id, key})
-          const stream = cfs.replicate({download: true, upload: true})
 
-          console.log('archive:', id.toString('utf8'), key.toString('hex'))
-          cfs.on('update', () => {
-            console.log('did sync:');
-            cfs.readdir('.', console.log)
-            cfs.readFile('ddo.json', 'utf8', console.log)
-          })
+        await new Promise((resolve) => connection.once('readable', resolve))
+        info("%s: Reading stream in from connection", pkg.name, peer.host)
 
-          pump(connection, stream, connection, (err) => {
-            if (err) { console.error(err) }
-          })
+        const id = state.idx.slice(3)
+        const key = state.pkx.slice(3)
+        const cfs = await createCFS({id, key})
+        const stream = cfs.replicate({download: true, upload: true})
+
+        info("%s: Got archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+        pump(connection, stream, connection, (err) => {
+          if (err) { console.error(err) }
         })
+
+        await new Promise((resolve) => cfs.once('update', resolve))
+        info("%s: Did sync archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+
+        let keystore = null
+        let files = null
+        let ddo = null
+
+
+        try { files = await cfs.readdir('.') }
+        catch (err) {
+          debug(err.stack || err)
+          error(err.message)
+          return warn("%s: Empty archive!", pkg.name, id.toString('utf8'), key.toString('hex'))
+        }
+
+        info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
+
+        const expected = ['ddo.json', 'keystore']
+
+        for (const file of expected) {
+          try { ddo = await cfs.readFile(file, 'utf8') }
+          catch (err) {
+            debug(err.stack || err)
+            error(err.message)
+            return warn("%s: Failed to sync `%s'", pkg.name, file, id.toString('utf8'), key.toString('hex'))
+          }
+
+          info("%s: Did sync `%s':", pkg.name, file, id.toString('utf8'), key.toString('hex'), ddo)
+        }
       }
     }
   }
