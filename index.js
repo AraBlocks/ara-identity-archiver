@@ -3,6 +3,7 @@
 const { info, warn, error } = require('ara-console')
 const { createNetwork } = require('ara-identity-archiver/network')
 const { createCFS } = require('cfsnet/create')
+const archiver = require('ara-identity-archiver')
 const through = require('through2')
 const secrets = require('ara-network/secrets')
 const crypto = require('ara-crypto')
@@ -81,86 +82,81 @@ async function start(argv) {
   network.swarm.on('peer', onpeer)
 
   function onstream(connection, peer) {
-    info("%s: Got stream", pkg.name, info)
-    const term = Buffer.from([0xdef])
-    const state = {}
-    connection.once('readable', () => {
-      info("%s: Reading PKX in from connection", pkg.name, peer.host)
-      lpm.read(connection, onpkx)
+    archiver.sink.handshake(connection, peer, {
+      onhandshake,
+      oninit,
+      onidx,
+      onfin,
+      onpkx,
     })
+    return
+
+    function oninit(state) {
+      connection.once('readable', () => {
+        info("%s: Reading PKX in from connection", pkg.name, peer.host)
+      })
+    }
 
     function onpkx(pkx) {
-      if (0 == Buffer.compare(term, pkx)) { return }
       info("%s: Got PKX", pkx.toString())
-      state.pkx = Buffer.from(pkx)
-      lpm.write(connection, crypto.blake2b(pkx))
       connection.once('readable', () => {
         info("%s: Reading IDX in from connection", pkg.name, peer.host)
-        lpm.read(connection, onidx)
       })
     }
 
     function onidx(idx) {
-      if (0 == Buffer.compare(term, idx)) { return }
       info("%s: Got IDX", idx.toString())
-      state.idx = Buffer.from(idx)
-      lpm.write(connection, crypto.blake2b(idx))
       connection.once('readable', () => {
         info("%s: Reading FIN in from connection", pkg.name, peer.host)
-        lpm.read(connection, onfin)
       })
     }
 
-    async function onfin(fin) {
-      if (0 == Buffer.compare(term, fin)) {
-        const ack = Buffer.concat([state.pkx, state.idx])
-        const signature = crypto.blake2b(ack)
-
-        info("%s: Got FIN(0xDEF)", fin.toString(), signature.toString('hex'))
-        lpm.write(connection, signature)
-
-        await new Promise((resolve) => connection.once('readable', resolve))
+    function onfin(fin, signature) {
+      info("%s: Got FIN(0xDEF)", fin.toString(), signature.toString('hex'))
+      connection.once('readable', () => {
         info("%s: Reading stream in from connection", pkg.name, peer.host)
+      })
+    }
 
-        const id = state.idx.slice(3)
-        const key = state.pkx.slice(3)
-        const cfs = await createCFS({id, key})
-        const stream = cfs.replicate({download: true, upload: true})
+    async function onhandshake(state) {
+      const id = state.idx.slice(3)
+      const key = state.pkx.slice(3)
+      const cfs = await createCFS({id, key})
+      const stream = cfs.replicate({download: true, upload: true})
 
-        info("%s: Got archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
-        pump(connection, stream, connection, (err) => {
-          if (err) { console.error(err) }
-        })
+      info("%s: Got archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+      pump(connection, stream, connection, (err) => {
+        if (err) { console.error(err) }
+      })
 
-        await new Promise((resolve) => cfs.once('update', resolve))
-        info("%s: Did sync archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+      await new Promise((resolve) => cfs.once('update', resolve))
+      info("%s: Did sync archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
 
-        let keystore = null
-        let files = null
-        let ddo = null
+      let keystore = null
+      let files = null
+      let ddo = null
 
 
-        try { files = await cfs.readdir('.') }
+      try { files = await cfs.readdir('.') }
+      catch (err) {
+        debug(err.stack || err)
+        error(err.message)
+        return warn("%s: Empty archive!", pkg.name, id.toString('utf8'), key.toString('hex'))
+      }
+
+      info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
+
+      const expected = ['ddo.json', 'keystore']
+
+      for (const file of expected) {
+        try { ddo = await cfs.readFile(file, 'utf8') }
         catch (err) {
           debug(err.stack || err)
           error(err.message)
-          return warn("%s: Empty archive!", pkg.name, id.toString('utf8'), key.toString('hex'))
+          return warn("%s: Failed to sync `%s'", pkg.name, file, id.toString('utf8'), key.toString('hex'))
         }
 
-        info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
-
-        const expected = ['ddo.json', 'keystore']
-
-        for (const file of expected) {
-          try { ddo = await cfs.readFile(file, 'utf8') }
-          catch (err) {
-            debug(err.stack || err)
-            error(err.message)
-            return warn("%s: Failed to sync `%s'", pkg.name, file, id.toString('utf8'), key.toString('hex'))
-          }
-
-          info("%s: Did sync `%s':", pkg.name, file, id.toString('utf8'), key.toString('hex'), ddo)
-        }
+        info("%s: Did sync `%s':", pkg.name, file, id.toString('utf8'), key.toString('hex'), ddo)
       }
     }
   }
@@ -251,3 +247,4 @@ module.exports = {
   start,
   stop,
 }
+
