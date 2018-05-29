@@ -132,10 +132,7 @@ async function start(argv) {
       await new Promise((resolve) => cfs.once('update', resolve))
       info("%s: Did sync archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
 
-      let keystore = null
       let files = null
-      let ddo = null
-
 
       try { files = await cfs.readdir('.') }
       catch (err) {
