@@ -145,19 +145,6 @@ async function start(argv) {
       }
 
       info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
-
-      const expected = ['ddo.json', 'keystore']
-
-      for (const file of expected) {
-        try { ddo = await cfs.readFile(file, 'utf8') }
-        catch (err) {
-          debug(err.stack || err)
-          error(err.message)
-          return warn("%s: Failed to sync `%s'", pkg.name, file, id.toString('utf8'), key.toString('hex'))
-        }
-
-        info("%s: Did sync `%s':", pkg.name, file, id.toString('utf8'), key.toString('hex'), ddo)
-      }
     }
   }
 
