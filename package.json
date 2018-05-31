@@ -26,9 +26,11 @@
     "debug": "^3.1.0",
     "extend": "^3.0.1",
     "length-prefixed-message": "^3.0.3",
+    "multidrive": "^5.2.0",
     "pify": "^3.0.0",
     "pump": "^3.0.0",
-    "through2": "^2.0.3"
+    "through2": "^2.0.3",
+    "toiletdb": "^1.4.1"
   },
   "devDependencies": {},
   "repository": {
