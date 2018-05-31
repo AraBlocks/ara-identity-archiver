@@ -2,12 +2,15 @@
 
 const { info, warn, error } = require('ara-console')
 const { createNetwork } = require('ara-identity-archiver/network')
+const { createServer } = require('ara-network/discovery')
 const { createCFS } = require('cfsnet/create')
+const multidrive = require('multidrive')
 const archiver = require('ara-identity-archiver')
 const through = require('through2')
 const secrets = require('ara-network/secrets')
 const crypto = require('ara-crypto')
 const extend = require('extend')
+const toilet = require('toiletdb')
 const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
 const pump = require('pump')
@@ -20,8 +23,10 @@ const conf = {
   key: null,
   keystore: null,
   dns: { loopback: true },
+  nodes: './nodes.json'
 }
 
+let resolvers = null
 let network = null
 
 async function start(argv) {
@@ -68,12 +73,30 @@ async function start(argv) {
     remote: keys.remote,
   })
 
-  info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
   network = createNetwork(conf)
+  resolvers = createServer({
+    stream(peer) {
+      if (peer && peer.channel) {
+        for (const cfs of drives.list()) {
+          if (0 == Buffer.compare(cfs.discoveryKey, peer.channel)) {
+            return cfs.replicate()
+          }
+        }
+      }
+      return through()
+    }
+  })
 
-  network.swarm.setMaxListeners(Infinity)
+  info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
+
   network.swarm.join(keys.discoveryKey)
   network.swarm.listen(conf.port)
+  network.swarm.setMaxListeners(Infinity)
+
+  resolvers.setMaxListeners(Infinity)
+  resolvers.listen(0)
+  resolvers.on('error', onerror)
+  resolvers.on('peer', onpeer)
 
   network.swarm.on('connection', onconnection)
   network.swarm.on('listening', onlistening)
@@ -81,15 +104,35 @@ async function start(argv) {
   network.swarm.on('error', onerror)
   network.swarm.on('peer', onpeer)
 
-  function onstream(connection, peer) {
-    archiver.sink.handshake(connection, peer, {
-      onhandshake,
-      oninit,
-      onidx,
-      onfin,
-      onpkx,
+  const store = toilet(conf.nodes)
+  const drives = await pify(multidrive)(store,
+    async (opts, done) => {
+      const id = Buffer.from(opts.id, 'hex').toString()
+      const key = Buffer.from(opts.key, 'hex').toString('hex')
+      console.log(id, key);
+      const cfs = await createCFS({id, key, sparse: false})
+      resolvers.join(cfs.discoveryKey)
+      done(null, cfs)
+    },
+    async (cfs, done) => {
+      try { await cfs.close() }
+      catch (err) { return done(err) }
+      return done(null)
     })
-    return
+
+  async function onstream(connection, peer) {
+    if (
+      null == peer || null == peer.channel ||
+      0 == Buffer.compare(peer.channel, keys.discoveryKey)
+    ) {
+      return archiver.sink.handshake(connection, peer, {
+        onhandshake,
+        oninit,
+        onidx,
+        onfin,
+        onpkx,
+      })
+    }
 
     function oninit(state) {
       connection.once('readable', () => {
@@ -121,10 +164,15 @@ async function start(argv) {
     async function onhandshake(state) {
       const id = state.idx.slice(3)
       const key = state.pkx.slice(3)
-      const cfs = await createCFS({id, key})
+      const cfs = await pify(drives.create)({
+        id: id.toString('hex'),
+        key: key.toString('hex')
+      })
+
       const stream = cfs.replicate({download: true, upload: true})
 
       info("%s: Got archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+
       pump(connection, stream, connection, (err) => {
         if (err) { console.error(err) }
       })
@@ -132,16 +180,14 @@ async function start(argv) {
       await new Promise((resolve) => cfs.once('update', resolve))
       info("%s: Did sync archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
 
-      let files = null
-
-      try { files = await cfs.readdir('.') }
-      catch (err) {
+      try {
+        const files = await cfs.readdir('.')
+        info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
+      } catch (err) {
         debug(err.stack || err)
         error(err.message)
         return warn("%s: Empty archive!", pkg.name, id.toString('utf8'), key.toString('hex'))
       }
-
-      info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
     }
   }
 
