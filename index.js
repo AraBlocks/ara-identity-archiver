@@ -44,8 +44,6 @@ async function start(argv) {
 
   if (null == conf.key || 'string' != typeof conf.key) {
     throw new TypeError("Expecting network key to be a string.")
-  } else {
-    conf.key = Buffer.alloc(16).fill(conf.key)
   }
 
   if (conf.keystore && 'string' == typeof conf.keystore) {
@@ -91,29 +89,22 @@ async function start(argv) {
 
   info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
 
-  let drives = null
   const store = toilet(conf.nodes)
+  const drives = await pify(multidrive)(store,
+    async function create(opts, done) {
+      const id = Buffer.from(opts.id, 'hex').toString('hex')
+      const key = Buffer.from(opts.key, 'hex')
+      const conf = Object.assign({}, opts, { id, key })
+      const cfs = await createCFS(conf)
+      resolvers.join(cfs.discoveryKey)
+      return done(null, cfs)
+    },
 
-  try {
-    drives = await pify(multidrive)(store,
-      async (opts, done) => {
-        const conf = Object.assign({}, opts, {
-          id: Buffer.from(opts.id, 'hex').toString('hex'),
-          key: Buffer.from(opts.key, 'hex')
-        })
-        const cfs = await createCFS(conf)
-        resolvers.join(cfs.discoveryKey)
-        return done(null, cfs)
-      },
-      async (cfs, done) => {
-        try { await cfs.close() }
-        catch (err) { return done(err) }
-        return done(null)
-      })
-  } catch (err) {
-    debug(err)
-    return false
-  }
+    async function close(cfs, done) {
+      try { await cfs.close() }
+      catch (err) { return done(err) }
+      return done(null)
+    })
 
   network = createNetwork(conf)
   network.swarm.join(keys.discoveryKey)
@@ -121,7 +112,6 @@ async function start(argv) {
   network.swarm.setMaxListeners(Infinity)
 
   resolvers.setMaxListeners(Infinity)
-  resolvers.listen(0)
   resolvers.on('error', onerror)
   resolvers.on('peer', onpeer)
 
@@ -134,17 +124,11 @@ async function start(argv) {
   return true
 
   async function onstream(connection, peer) {
-    if (
-      null == peer || null == peer.channel ||
-      0 == Buffer.compare(peer.channel, keys.discoveryKey)
-    ) {
-      return archiver.sink.handshake(connection, peer, {
-        onhandshake,
-        oninit,
-        onidx,
-        onfin,
-        onpkx,
-      })
+    const { discoveryKey } = keys
+    const { channel } = peer
+    if (channel && 0 == Buffer.compare(channel, discoveryKey)) {
+      const callbacks = { onhandshake, oninit, onidx, onfin, onpkx }
+      return archiver.sink.handshake(connection, peer, callbacks)
     }
 
     function oninit(state) {
@@ -267,12 +251,12 @@ async function configure(opts, program) {
       .option('key', {
         type: 'string',
         alias: 'k',
-        describe: 'ARA network key hex value.'
+        describe: 'Network key.'
       })
       .option('keystore', {
         type: 'string',
         alias: 'K',
-        describe: 'ARA network key store object'
+        describe: 'Network keystore file path'
       })
 
     if (argv.keystore) { opts.keystore = argv.keystore }
