@@ -73,22 +73,49 @@ async function start(argv) {
     remote: keys.remote,
   })
 
-  network = createNetwork(conf)
   resolvers = createServer({
     stream(peer) {
-      if (peer && peer.channel) {
+      const { port } = resolvers.address()
+      if (peer && peer.channel && port != peer.port) {
         for (const cfs of drives.list()) {
           if (0 == Buffer.compare(cfs.discoveryKey, peer.channel)) {
-            return cfs.replicate()
+            return cfs.replicate({live: true})
           }
         }
       }
-      return through()
+      const stream = through()
+      stream.end()
+      return stream
     }
   })
 
   info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
 
+  let drives = null
+  const store = toilet(conf.nodes)
+
+  try {
+    drives = await pify(multidrive)(store,
+      async (opts, done) => {
+        const conf = Object.assign({}, opts, {
+          id: Buffer.from(opts.id, 'hex').toString('hex'),
+          key: Buffer.from(opts.key, 'hex')
+        })
+        const cfs = await createCFS(conf)
+        resolvers.join(cfs.discoveryKey)
+        return done(null, cfs)
+      },
+      async (cfs, done) => {
+        try { await cfs.close() }
+        catch (err) { return done(err) }
+        return done(null)
+      })
+  } catch (err) {
+    debug(err)
+    return false
+  }
+
+  network = createNetwork(conf)
   network.swarm.join(keys.discoveryKey)
   network.swarm.listen(conf.port)
   network.swarm.setMaxListeners(Infinity)
@@ -104,21 +131,7 @@ async function start(argv) {
   network.swarm.on('error', onerror)
   network.swarm.on('peer', onpeer)
 
-  const store = toilet(conf.nodes)
-  const drives = await pify(multidrive)(store,
-    async (opts, done) => {
-      const id = Buffer.from(opts.id, 'hex').toString()
-      const key = Buffer.from(opts.key, 'hex').toString('hex')
-      console.log(id, key);
-      const cfs = await createCFS({id, key, sparse: false})
-      resolvers.join(cfs.discoveryKey)
-      done(null, cfs)
-    },
-    async (cfs, done) => {
-      try { await cfs.close() }
-      catch (err) { return done(err) }
-      return done(null)
-    })
+  return true
 
   async function onstream(connection, peer) {
     if (
@@ -166,27 +179,32 @@ async function start(argv) {
       const key = state.pkx.slice(3)
       const cfs = await pify(drives.create)({
         id: id.toString('hex'),
-        key: key.toString('hex')
+        key: key.toString('hex'),
       })
 
-      const stream = cfs.replicate({download: true, upload: true})
+      const stream = cfs.replicate({download: true, upload: false, live: false})
 
-      info("%s: Got archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+      info("%s: Got archive:", pkg.name, id.toString('hex'), key.toString('hex'))
 
       pump(connection, stream, connection, (err) => {
-        if (err) { console.error(err) }
+        if (err) {
+          debug(err)
+          error(err.message)
+        }
       })
 
       await new Promise((resolve) => cfs.once('update', resolve))
-      info("%s: Did sync archive:", pkg.name, id.toString('utf8'), key.toString('hex'))
+      info("%s: Did sync archive:", pkg.name, id.toString('hex'), key.toString('hex'))
 
       try {
+        await cfs.download('.')
         const files = await cfs.readdir('.')
-        info("%s: Did sync files:", pkg.name, id.toString('utf8'), key.toString('hex'), files)
+        info("%s: Did sync files:", pkg.name, id.toString('hex'), key.toString('hex'), files)
       } catch (err) {
         debug(err.stack || err)
         error(err.message)
-        return warn("%s: Empty archive!", pkg.name, id.toString('utf8'), key.toString('hex'))
+        warn("%s: Empty archive!", pkg.name, id.toString('hex'), key.toString('hex'))
+      } finally {
       }
     }
   }
@@ -226,8 +244,6 @@ async function start(argv) {
     const { port } = network.swarm.address()
     info("identity-archiver: Listening on port %s", port)
   }
-
-  return true
 }
 
 async function stop(argv) {
