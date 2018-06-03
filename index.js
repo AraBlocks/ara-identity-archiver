@@ -3,7 +3,7 @@
 const { info, warn, error } = require('ara-console')
 const { createNetwork } = require('ara-identity-archiver/network')
 const { createServer } = require('ara-network/discovery')
-const { createCFS } = require('cfsnet/create')
+const { resolve } = require('path')
 const multidrive = require('multidrive')
 const archiver = require('ara-identity-archiver')
 const through = require('through2')
@@ -17,17 +17,36 @@ const pump = require('pump')
 const lpm = require('length-prefixed-message')
 const pkg = require('./package')
 const fs = require('fs')
+const rc = require('./rc')()
 
 const conf = {
-  port: 8000,
+  port: 0,
   key: null,
-  keystore: null,
   dns: { loopback: true },
-  nodes: './nodes.json'
 }
 
 let resolvers = null
 let network = null
+
+async function getInstance(argv) {
+  return network.swarm
+}
+
+async function configure(opts, program) {
+  if (program) {
+    const { argv } = program
+      .option('key', {
+        type: 'string',
+        alias: 'k',
+        describe: 'Network key.'
+      })
+
+    if (argv.port) { opts.port = argv.port }
+    if (argv.key) { opts.key = argv.key }
+  }
+
+  return extend(true, conf, opts)
+}
 
 async function start(argv) {
   if (network && network.swarm) {
@@ -46,22 +65,25 @@ async function start(argv) {
     throw new TypeError("Expecting network key to be a string.")
   }
 
-  if (conf.keystore && 'string' == typeof conf.keystore) {
-    try { await pify(fs.access)(conf.keystore) }
-    catch (err) {
-      throw new Error(`Unable to access keystore file '${conf.keystore}'.`)
+  try {
+    const doc = await secrets.load(conf)
+    if (null == doc || null == doc.secret) {
+      throw new TypeError("Cannot start node on network without private secret key.")
     }
 
-    try {
-      const { keystore } = JSON.parse(await pify(fs.readFile)(conf.keystore, 'utf8'))
-      Object.assign(keys, secrets.decrypt({keystore}, {key: conf.key}))
-    } catch (err) {
-      debug(err)
-      throw new Error(`Unable to read keystore file '${conf.keystore}'.`)
-    }
-  } else {
-    throw new TypeError("Missing keystore file path.")
+    const { keystore } = doc.secret
+    Object.assign(keys, secrets.decrypt({keystore}, {key: conf.key}))
+  } catch (err) {
+    debug(err)
+    throw new Error(`Unable to read keystore for '${conf.key}'.`)
   }
+
+  // overload CFS roof directory to be the archive root directory
+  process.env.CFS_ROOT_DIR = resolve(
+    require('ara-identity-archiver/rc')().network.identity.archive.root,
+    crypto.blake2b(Buffer.from(conf.key)).toString('hex')
+  )
+  const { createCFS } = require('cfsnet/create')
 
   Object.assign(conf, {onstream})
   Object.assign(conf, {discoveryKey: keys.discoveryKey})
@@ -81,20 +103,18 @@ async function start(argv) {
           }
         }
       }
-      const stream = through()
-      stream.end()
-      return stream
+      return through()
     }
   })
 
   info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
 
-  const store = toilet(conf.nodes)
+  const store = toilet(rc.network.identity.archive.nodes.store)
   const drives = await pify(multidrive)(store,
     async function create(opts, done) {
       const id = Buffer.from(opts.id, 'hex').toString('hex')
       const key = Buffer.from(opts.key, 'hex')
-      const conf = Object.assign({}, opts, { id, key })
+      const conf = Object.assign({}, opts, { id, key, shallow: true })
       const cfs = await createCFS(conf)
       resolvers.join(cfs.discoveryKey)
       return done(null, cfs)
@@ -126,10 +146,8 @@ async function start(argv) {
   async function onstream(connection, peer) {
     const { discoveryKey } = keys
     const { channel } = peer
-    if (channel && 0 == Buffer.compare(channel, discoveryKey)) {
-      const callbacks = { onhandshake, oninit, onidx, onfin, onpkx }
-      return archiver.sink.handshake(connection, peer, callbacks)
-    }
+    const callbacks = { onhandshake, oninit, onidx, onfin, onpkx }
+    return archiver.sink.handshake(connection, peer, callbacks)
 
     function oninit(state) {
       connection.once('readable', () => {
@@ -243,32 +261,6 @@ async function stop(argv) {
   function onclose() {
     network.swarm = null
   }
-}
-
-async function configure(opts, program) {
-  if (program) {
-    const { argv } = program
-      .option('key', {
-        type: 'string',
-        alias: 'k',
-        describe: 'Network key.'
-      })
-      .option('keystore', {
-        type: 'string',
-        alias: 'K',
-        describe: 'Network keystore file path'
-      })
-
-    if (argv.keystore) { opts.keystore = argv.keystore }
-    if (argv.port) { opts.port = argv.port }
-    if (argv.key) { opts.key = argv.key }
-  }
-
-  return extend(true, conf, opts)
-}
-
-async function getInstance(argv) {
-  return network.swarm
 }
 
 module.exports = {
