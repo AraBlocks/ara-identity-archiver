@@ -147,7 +147,11 @@ async function start(argv) {
     const { discoveryKey } = keys
     const { channel } = peer
     const callbacks = { onhandshake, oninit, onidx, onfin, onpkx }
-    return archiver.sink.handshake(connection, peer, callbacks)
+    connection.on('error', error)
+    try { return archiver.sink.handshake(connection, peer, callbacks) }
+    catch (err) {
+      debug(err)
+    }
 
     function oninit(state) {
       connection.once('readable', () => {
@@ -195,8 +199,10 @@ async function start(argv) {
         }
       })
 
-      await new Promise((resolve) => cfs.once('update', resolve))
-      info("%s: Did sync archive:", pkg.name, id.toString('hex'), key.toString('hex'))
+      //await new Promise((resolve) => cfs.once('update', resolve))
+      cfs.once('sync', () => {
+        info("%s: Did sync archive:", pkg.name, id.toString('hex'), key.toString('hex'))
+      })
 
       try {
         await cfs.download('.')
