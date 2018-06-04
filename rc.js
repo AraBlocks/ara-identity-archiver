@@ -9,7 +9,7 @@ const defaults = () => ({
     identity: {
       archive: {
         nodes: {
-          store: resolve(rc().network.identity.archive.root, 'nodes.json')
+          store: resolve(rc().network.identity.archive.root, 'nodes')
         }
       }
     }
