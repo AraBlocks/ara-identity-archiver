@@ -61,3 +61,4 @@ typings/
 .next
 .cfs/
 nodes.json
+package-lock.json
