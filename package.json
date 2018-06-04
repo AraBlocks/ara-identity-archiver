@@ -30,6 +30,7 @@
     "multidrive": "^5.2.0",
     "pify": "^3.0.0",
     "pump": "^3.0.0",
+    "rimraf": "^2.6.2",
     "through2": "^2.0.3",
     "toiletdb": "^1.4.1"
   },
