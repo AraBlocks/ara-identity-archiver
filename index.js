@@ -116,7 +116,8 @@ async function start(argv) {
       const key = Buffer.from(opts.key, 'hex')
       const conf = Object.assign({}, opts, { id, key, shallow: true })
       const cfs = await createCFS(conf)
-      resolvers.join(cfs.discoveryKey)
+      // wait 1000ms to wait for resolvers swarm to boot up
+      setTimeout(() => resolvers.join(cfs.discoveryKey), 1000)
       return done(null, cfs)
     },
 
