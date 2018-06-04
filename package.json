@@ -27,6 +27,7 @@
     "debug": "^3.1.0",
     "extend": "^3.0.1",
     "length-prefixed-message": "^3.0.3",
+    "mkdirp": "^0.5.1",
     "multidrive": "^5.2.0",
     "pify": "^3.0.0",
     "pump": "^3.0.0",
