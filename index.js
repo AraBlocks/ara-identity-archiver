@@ -10,6 +10,7 @@ const through = require('through2')
 const secrets = require('ara-network/secrets')
 const crypto = require('ara-crypto')
 const extend = require('extend')
+const rimraf = require('rimraf')
 const toilet = require('toiletdb')
 const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
@@ -78,11 +79,14 @@ async function start(argv) {
     throw new Error(`Unable to read keystore for '${conf.key}'.`)
   }
 
+  const pathPrefix = crypto.blake2b(Buffer.from(conf.key)).toString('hex')
   // overload CFS roof directory to be the archive root directory
   process.env.CFS_ROOT_DIR = resolve(
     require('ara-identity-archiver/rc')().network.identity.archive.root,
-    crypto.blake2b(Buffer.from(conf.key)).toString('hex')
+    pathPrefix
   )
+
+  const { createCFSKeyPath } = require('cfsnet/key-path')
   const { createCFS } = require('cfsnet/create')
 
   Object.assign(conf, {onstream})
@@ -109,16 +113,22 @@ async function start(argv) {
 
   info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
 
-  const store = toilet(rc.network.identity.archive.nodes.store)
+  console.log(rc.network.identity);
+  const nodes = resolve(rc.network.identity.archive.nodes.store, pathPrefix)
+  const store = toilet(nodes)
   const drives = await pify(multidrive)(store,
     async function create(opts, done) {
       const id = Buffer.from(opts.id, 'hex').toString('hex')
       const key = Buffer.from(opts.key, 'hex')
-      const conf = Object.assign({}, opts, { id, key, shallow: true })
-      const cfs = await createCFS(conf)
-      // wait 1000ms to wait for resolvers swarm to boot up
-      setTimeout(() => resolvers.join(cfs.discoveryKey), 1000)
-      return done(null, cfs)
+      try {
+        const conf = Object.assign({}, opts, { id, key, shallow: true })
+        const cfs = await createCFS(conf)
+        // wait 1000ms to wait for resolvers swarm to boot up
+        setTimeout(() => resolvers.join(cfs.discoveryKey), 1000)
+        return done(null, cfs)
+      } catch (err) {
+        done(err)
+      }
     },
 
     async function close(cfs, done) {
@@ -200,10 +210,12 @@ async function start(argv) {
         }
       })
 
-      //await new Promise((resolve) => cfs.once('update', resolve))
       cfs.once('sync', () => {
         info("%s: Did sync archive:", pkg.name, id.toString('hex'), key.toString('hex'))
       })
+
+      try { await cfs.access('.') }
+      catch (err) { await new Promise((resolve) => cfs.once('update', resolve)) }
 
       try {
         await cfs.download('.')
