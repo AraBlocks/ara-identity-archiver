@@ -163,6 +163,8 @@ async function start(argv) {
     try { return archiver.sink.handshake(connection, peer, callbacks) }
     catch (err) {
       debug(err)
+      try { connection.end() }
+      catch (err) { debug(err) }
     }
 
     function oninit(state) {
@@ -172,27 +174,29 @@ async function start(argv) {
     }
 
     function onpkx(pkx) {
-      info("%s: Got PKX", pkx.toString())
+      info("%s: Got PKX pkx%s", pkx.slice(3).toString('hex'))
       connection.once('readable', () => {
         info("%s: Reading IDX in from connection", pkg.name, peer.host)
       })
     }
 
     function onidx(idx) {
-      info("%s: Got IDX", idx.toString())
+      info("%s: Got IDX idx%s", idx.slice(3).toString('hex'))
       connection.once('readable', () => {
         info("%s: Reading FIN in from connection", pkg.name, peer.host)
       })
     }
 
     function onfin(fin, signature) {
-      info("%s: Got FIN(0xDEF)", fin.toString(), signature.toString('hex'))
+      info("%s: Got FIN(0xDEF)", fin.toString('hex'), signature.toString('hex'))
       connection.once('readable', () => {
         info("%s: Reading stream in from connection", pkg.name, peer.host)
       })
     }
 
     async function onhandshake(state) {
+      connection.end()
+
       const id = state.idx.slice(3)
       const key = state.pkx.slice(3)
       const cfs = await pify(drives.create)({
