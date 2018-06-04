@@ -10,6 +10,7 @@ const through = require('through2')
 const secrets = require('ara-network/secrets')
 const crypto = require('ara-crypto')
 const extend = require('extend')
+const mkdirp = require('mkdirp')
 const rimraf = require('rimraf')
 const toilet = require('toiletdb')
 const debug = require('debug')('ara:network:node:identity-archiver')
@@ -103,7 +104,7 @@ async function start(argv) {
       if (peer && peer.channel && port != peer.port) {
         for (const cfs of drives.list()) {
           if (0 == Buffer.compare(cfs.discoveryKey, peer.channel)) {
-            return cfs.replicate({live: true})
+            return cfs.replicate({live: false})
           }
         }
       }
@@ -113,7 +114,7 @@ async function start(argv) {
 
   info("%s: discovery key:", pkg.name, keys.discoveryKey.toString('hex'));
 
-  console.log(rc.network.identity);
+  await pify(mkdirp)(rc.network.identity.archive.nodes.store)
   const nodes = resolve(rc.network.identity.archive.nodes.store, pathPrefix)
   const store = toilet(nodes)
   const drives = await pify(multidrive)(store,
@@ -199,16 +200,7 @@ async function start(argv) {
         key: key.toString('hex'),
       })
 
-      const stream = cfs.replicate({download: true, upload: false, live: false})
-
       info("%s: Got archive:", pkg.name, id.toString('hex'), key.toString('hex'))
-
-      pump(connection, stream, connection, (err) => {
-        if (err) {
-          debug(err)
-          error(err.message)
-        }
-      })
 
       cfs.once('sync', () => {
         info("%s: Did sync archive:", pkg.name, id.toString('hex'), key.toString('hex'))
