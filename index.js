@@ -42,6 +42,11 @@ async function configure(opts, program) {
         alias: 'k',
         describe: 'Network key.'
       })
+      .option('port', {
+        type: 'numnner',
+        alias: 'p',
+        describe: 'Port for network server to listen on.'
+      })
 
     if (argv.port) { opts.port = argv.port }
     if (argv.key) { opts.key = argv.key }
