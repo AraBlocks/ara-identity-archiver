@@ -1,10 +1,7 @@
-<img src="https://github.com/AraBlocks/docs/blob/master/ara.png" width="30" height="30" /> ara-network
-===========
+<img src="https://github.com/AraBlocks/docs/blob/master/ara.png" width="30" height="30" /> ara-network-node-identity-archiver
+======================================
 
 [![Build Status](https://travis-ci.com/AraBlocks/ara-network-node-identity-archiver.svg?token=Ty4yTmKT8aELetQd1xZp&branch=master)](https://travis-ci.com/AraBlocks/ara-network-node-identity-archiver)
-
-ara-network-node-identity-archiver
-==================================
 
 An ARA network node that archives identities in a network.
 
