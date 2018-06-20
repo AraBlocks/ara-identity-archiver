@@ -21,6 +21,7 @@
     "ara-network": "github:arablocks/ara-network"
   },
   "dependencies": {
+    "ara-network": "github:arablocks/ara-network",
     "ara-console": "github:arablocks/ara-console",
     "ara-crypto": "github:arablocks/ara-crypto",
     "ara-identity-archiver": "github:arablocks/ara-identity-archiver",
