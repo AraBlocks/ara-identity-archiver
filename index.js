@@ -1,5 +1,3 @@
-
-
 const { info, warn, error } = require('ara-console')
 const { createNetwork } = require('ara-identity-archiver/network')
 const { createServer } = require('ara-network/discovery')
@@ -88,7 +86,6 @@ async function start() {
     pathPrefix
   )
 
-
   Object.assign(conf, { onstream })
   Object.assign(conf, { discoveryKey: keys.discoveryKey })
   Object.assign(conf, {
@@ -111,7 +108,7 @@ async function start() {
     }
   })
 
-  info('%s: discovery key:', pkg.name, keys.discoveryKey.toString('hex'));
+  info('%s: discovery key:', pkg.name, keys.discoveryKey.toString('hex'))
 
   await pify(mkdirp)(rc.network.identity.archive.nodes.store)
   const nodes = resolve(rc.network.identity.archive.nodes.store, pathPrefix)
