@@ -1,20 +1,31 @@
 const { info, warn, error } = require('ara-console')
 const { createNetwork } = require('ara-identity-archiver/network')
+const { createChannel } = require('ara-network/discovery/channel')
+const { unpack, keyRing } = require('ara-network/keys')
+const { Handshake } = require('ara-network/handshake')
 const { createServer } = require('ara-network/discovery')
 const { createCFS } = require('cfsnet/create')
 const { resolve } = require('path')
 const multidrive = require('multidrive')
 const archiver = require('ara-identity-archiver')
 const through = require('through2')
-const secrets = require('ara-network/secrets')
+const ss = require('ara-secret-storage')
 const crypto = require('ara-crypto')
+const { readFile } = require('fs')
+const inquirer = require('inquirer')
+const { DID } = require('did-uri')
 const extend = require('extend')
 const mkdirp = require('mkdirp')
 const toilet = require('toiletdb')
 const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
+const net = require('net')
+const pump = require('pump')
 const pkg = require('./package')
 const rc = require('./rc')()
+
+require('ara-identity/rc')()
+require('./rc')()
 
 const conf = {
   port: 0,
@@ -23,76 +34,92 @@ const conf = {
 }
 
 let resolvers = null
-let network = null
+let channel = null
 
 async function getInstance() {
-  return network.swarm
+  return channel
 }
 
 async function configure(opts, program) {
   if (program) {
     const { argv } = program
-      .option('key', {
-        type: 'string',
+      .option('identity', {
+        alias: 'i',
+        describe: 'Ara Identity for the network node'
+      })
+      .option('secret', {
+        alias: 's',
+        describe: 'Shared secret key for network keys with this node'
+      })
+      .option('name', {
+      alias: 'n',
+      describe: 'Human readable network keys name.'
+      })
+      .option('keys', {
         alias: 'k',
-        describe: 'Network key.'
+        describe: 'Path to ARA network keys'
       })
       .option('port', {
-        type: 'number',
         alias: 'p',
-        describe: 'Port for network server to listen on.'
+        describe: 'Port for network node to listen on.'
       })
 
-    if (argv.port) { conf.port = argv.port }
-    if (argv.key) { conf.key = argv.key }
+    conf.port = argv.port
+    conf.keys = argv.keys
+    conf.name = argv.name
+    conf.secret = argv.secret
+    conf.identity = argv.identity
   }
 
   return extend(true, conf, opts)
 }
 
 async function start() {
-  if (network && network.swarm) {
+  if (channel) {
     return false
   }
 
-  const keys = {
-    discoveryKey: null,
-    remote: null,
-    client: null,
-    network: null,
-  }
+  channel = createChannel({ })
 
-  if (null == conf.key || 'string' !== typeof conf.key) {
-    throw new TypeError('Expecting network key to be a string.')
-  }
-
-  try {
-    const doc = await secrets.load(conf)
-    if (null == doc || null == doc.secret) {
-      throw new TypeError('Cannot start node on network without private secret key.')
+  let { password } = await inquirer.prompt([
+    {
+      type: 'password',
+      name: 'password',
+      message:
+        'Please enter the passphrase associated with the node identity.\n' +
+        'Passphrase:'
     }
-
-    const { keystore } = doc.secret
-    Object.assign(keys, secrets.decrypt({ keystore }, { key: conf.key }))
-  } catch (err) {
-    debug(err)
-    throw new Error(`Unable to read keystore for '${conf.key}'.`)
+  ])
+  if (0 !== conf.identity.indexOf('did:ara:')) {
+    conf.identity = `did:ara:${conf.identity}`
   }
+  const did = new DID(conf.identity)
+  const publicKey = Buffer.from(did.identifier, 'hex')
 
-  const pathPrefix = crypto.blake2b(Buffer.from(conf.key)).toString('hex')
+  password = crypto.blake2b(Buffer.from(password))
+
+  const hash = crypto.blake2b(publicKey).toString('hex')
+  const path = resolve(rc.network.identity.root, hash, 'keystore/ara')
+  const secret = Buffer.from(conf.secret)
+  const keystore = JSON.parse(await pify(readFile)(path, 'utf8'))
+  const secretKey = ss.decrypt(keystore, { key: password.slice(0, 16) })
+
+  const keyring = keyRing(conf.keys, { secret: secretKey })
+  const buffer = await keyring.get(conf.name)
+  const unpacked = unpack({ buffer })
+
+  const { discoveryKey } = unpacked
+  const server = net.createServer(onconnection)
+  server.listen(conf.port, onlisten)
+
+  const pathPrefix = crypto.blake2b(Buffer.from(conf.name)).toString('hex')
   // overload CFS roof directory to be the archive root directory
   process.env.CFS_ROOT_DIR = resolve(
     rc.network.identity.archive.root,
     pathPrefix
   )
 
-  Object.assign(conf, { onstream })
-  Object.assign(conf, { discoveryKey: keys.discoveryKey })
-  Object.assign(conf, {
-    network: keys.network,
-    client: keys.client,
-    remote: keys.remote,
-  })
+  Object.assign(conf, { discoveryKey })
 
   resolvers = createServer({
     stream(peer) {
@@ -108,7 +135,7 @@ async function start() {
     }
   })
 
-  info('%s: discovery key:', pkg.name, keys.discoveryKey.toString('hex'))
+  info('%s: discovery key:', pkg.name, discoveryKey.toString('hex'))
 
   await pify(mkdirp)(rc.network.identity.archive.nodes.store)
   const nodes = resolve(rc.network.identity.archive.nodes.store, pathPrefix)
@@ -121,7 +148,6 @@ async function start() {
       try {
         const config = Object.assign({}, opts, { id, key, shallow: true })
         const cfs = await createCFS(config)
-        // wait 1000ms to wait for resolvers swarm to boot up
         setTimeout(() => resolvers.join(cfs.discoveryKey), 1000)
         return done(null, cfs)
       } catch (err) {
@@ -136,143 +162,127 @@ async function start() {
     }
   )
 
-  network = createNetwork(conf)
-  network.swarm.join(keys.discoveryKey)
-  network.swarm.listen(conf.port)
-  network.swarm.setMaxListeners(Infinity)
+  function onlisten(err) {
+    if (err) { throw err }
+    const { port } = server.address()
+    channel.join(discoveryKey, port)
+  }
 
-  resolvers.setMaxListeners(Infinity)
-  resolvers.on('error', onerror)
-  resolvers.on('peer', onpeer)
-  resolvers.on('authorize', onauthorize)
+  function onconnection(socket) {
+    const handshake = new Handshake({
+      publicKey,
+      secretKey,
+      secret,
+      remote: { publicKey: unpacked.publicKey },
+      domain: { publicKey: unpacked.domain.publicKey }
+    })
 
-  network.swarm.on('connection', onconnection)
-  network.swarm.on('listening', onlistening)
-  network.swarm.on('close', onclose)
-  network.swarm.on('error', onerror)
-  network.swarm.on('peer', onpeer)
+    handshake.on('hello', onhello)
+    handshake.on('auth', onauth)
+    handshake.on('okay', onokay)
 
-  return true
+    pump(handshake, socket, handshake, (err) => {
+      if (err) {
+        warn(err.message)
+      }
+    })
 
-  async function onstream(connection, peer) {
-    const callbacks = {
-      onhandshake, oninit, onidx, onfin, onpkx
-    }
-    connection.on('error', error)
-    try { return archiver.sink.handshake(connection, peer, callbacks) } catch (err) {
-      debug(err)
-      try { connection.end() } catch (msg) { debug(msg) }
-    }
-
-    function oninit() {
-      connection.once('readable', () => {
-        info('%s: Reading PKX in from connection', pkg.name, peer.host)
-      })
+    function onhello() {
+      handshake.hello()
     }
 
-    function onpkx(pkx) {
-      info('%s: Got PKX pkx%s', pkx.slice(3).toString('hex'))
-      connection.once('readable', () => {
-        info('%s: Reading IDX in from connection', pkg.name, peer.host)
-      })
+    function onauth() {
     }
 
-    function onidx(idx) {
-      info('%s: Got IDX idx%s', idx.slice(3).toString('hex'))
-      connection.once('readable', () => {
-        info('%s: Reading FIN in from connection', pkg.name, peer.host)
-      })
-    }
+    async function onokay() {
 
-    function onfin(fin, signature) {
-      info('%s: Got FIN(0xDEF)', fin.toString('hex'), signature.toString('hex'))
-      connection.once('readable', () => {
-        info('%s: Reading stream in from connection', pkg.name, peer.host)
-      })
-    }
+      resolvers.setMaxListeners(Infinity)
+      resolvers.on('error', onerror)
 
-    async function onhandshake(state) {
-      connection.end()
+      const reader = handshake.createReadStream()
 
-      const id = state.idx.slice(3)
-      const key = state.pkx.slice(3)
-      const cfs = await pify(drives.create)({
-        id: id.toString('hex'),
-        key: key.toString('hex'),
-      })
+      reader.on('data', (async (data) => {
+        const id = data.slice(64)
+        const key = data.slice(0,32)
+        const result = await oncreate(id,key)
+        const writer = handshake.createWriteStream()
+        if (result) {
+          writer.write(Buffer.from('Identity Archived'))
+        }
+        else {
+          writer.write(Buffer.from('Identity Archiving Failed'))
+        }
+      }))
 
-      info('%s: Got archive:', pkg.name, id.toString('hex'), key.toString('hex'))
+      async function oncreate(id, key) {
+        const cfs = await pify(drives.create)({
+          id: id.toString('hex'),
+          key: key.toString('hex'),
+        })
 
-      cfs.once('sync', () => {
-        info('%s: Did sync archive:', pkg.name, id.toString('hex'), key.toString('hex'))
-      })
+        info('%s: Got archive:', pkg.name, id.toString('hex'), key.toString('hex'))
 
-      /* eslint-disable no-shadow */
-      try { await cfs.access('.') } catch (err) { await new Promise(resolve => cfs.once('update', resolve)) }
-      /* eslint-enable no-shadow */
+        cfs.once('sync', () => {
+            info('%s: Did sync archive:', pkg.name, id.toString('hex'), key.toString('hex'))
+        })
 
-      try {
-        await cfs.download('.')
-        const files = await cfs.readdir('.')
-        info('%s: Did sync files:', pkg.name, id.toString('hex'), key.toString('hex'), files)
-      } catch (err) {
-        debug(err.stack || err)
-        error(err.message)
-        warn('%s: Empty archive!', pkg.name, id.toString('hex'), key.toString('hex'))
+        /* eslint-disable no-shadow */
+        try { await cfs.access('.') } catch (err) {
+          await new Promise(resolve => cfs.once('update', resolve))
+        }
+        /* eslint-enable no-shadow */
+        try {
+          await cfs.download('.')
+          const files = await cfs.readdir('.')
+          info('%s: Did sync files:', pkg.name, id.toString('hex'), key.toString('hex'), files)
+        } catch (err) {
+          debug(err.stack || err)
+          error(err.message)
+          warn('%s: Empty archive!', pkg.name, id.toString('hex'), key.toString('hex'))
+        }
+        return true
+      }
+
+      function onerror(err) {
+        debug('error:', err)
+        if (err && 'EADDRINUSE' === err.code) {
+          return network.swarm.listen(0)
+        }
+        warn('identity-archiver: error:', err.message)
+        return null
+      }
+
+      function onpeer(peer) {
+        info('Got peer:', peer.id)
+      }
+
+      function onclose() {
+        warn('identity-archiver: Closed')
+      }
+
+      function onlistening() {
+        const { port } = network.address()
+        info('identity-archiver: Listening on port %s', port)
       }
     }
-    return null
+
   }
 
-  function onauthorize(id, done) {
-    if (0 === Buffer.compare(id, keys.remote.publicKey)) {
-      info('Authorizing peer:', id.toString('hex'))
-      done(null, true)
-    } else {
-      info('Denying peer:', id.toString('hex'))
-      done(null, false)
-    }
-  }
-
-  function onconnection() {
-    info('Connected to peer:')
-  }
-
-  function onerror(err) {
-    debug('error:', err)
-    if (err && 'EADDRINUSE' === err.code) {
-      return network.swarm.listen(0)
-    }
-    warn('identity-archiver: error:', err.message)
-    return null
-  }
-
-  function onpeer(peer) {
-    info('Got peer:', peer.id)
-  }
-
-  function onclose() {
-    warn('identity-archiver: Closed')
-  }
-
-  function onlistening() {
-    const { port } = network.swarm.address()
-    info('identity-archiver: Listening on port %s', port)
-  }
+  return true
 }
 
 async function stop() {
-  if (null == network || null == network.swarm) {
+  if (null == channel) {
     return false
   }
 
   warn('identity-archiver: Stopping network.swarm')
-  network.swarm.close(onclose)
+  channel.destroy()
 
   return true
 
   function onclose() {
-    network.swarm = null
+    channel = null
   }
 }
 
