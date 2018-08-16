@@ -31,7 +31,7 @@
     "debug": "^3.1.0",
     "did-uri": "github:arablocks/did-uri",
     "extend": "^3.0.1",
-    "inquirer": "",
+    "inquirer": "^5.2.0",
     "length-prefixed-message": "^3.0.3",
     "mkdirp": "^0.5.1",
     "multidrive": "^5.2.0",
