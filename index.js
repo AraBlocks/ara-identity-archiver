@@ -200,9 +200,9 @@ async function start() {
         const result = await oncreate(id, key)
         const writer = handshake.createWriteStream()
         if (result) {
-          writer.write(Buffer.from('Identity Archived'))
+          writer.write(Buffer.from('0xDEF'))
         } else {
-          writer.write(Buffer.from('Identity Archiving Failed'))
+          writer.write(Buffer.from('0xDF0'))
         }
         writer.end()
         handshake.destroy()
