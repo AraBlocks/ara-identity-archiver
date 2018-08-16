@@ -1,31 +1,30 @@
-const { info, warn, error } = require('ara-console')
+const debug = require('debug')('ara:network:node:identity-archiver')
 const { createNetwork } = require('ara-identity-archiver/network')
 const { createChannel } = require('ara-network/discovery/channel')
+const { createServer } = require('ara-network/discovery')
 const { unpack, keyRing } = require('ara-network/keys')
 const { Handshake } = require('ara-network/handshake')
-const { createServer } = require('ara-network/discovery')
-const { createCFS } = require('cfsnet/create')
-const { resolve } = require('path')
-const multidrive = require('multidrive')
+const { info, warn, error } = require('ara-console')
 const archiver = require('ara-identity-archiver')
-const through = require('through2')
+const { createCFS } = require('cfsnet/create')
+const multidrive = require('multidrive')
 const ss = require('ara-secret-storage')
 const crypto = require('ara-crypto')
-const { readFile } = require('fs')
 const inquirer = require('inquirer')
+const through = require('through2')
+const { resolve } = require('path')
+const { readFile } = require('fs')
 const { DID } = require('did-uri')
+const toilet = require('toiletdb')
+const pkg = require('./package')
 const extend = require('extend')
 const mkdirp = require('mkdirp')
-const toilet = require('toiletdb')
-const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
 const net = require('net')
 const pump = require('pump')
-const pkg = require('./package')
 const rc = require('./rc')()
 
 require('ara-identity/rc')()
-require('./rc')()
 
 const conf = {
   port: 0,
@@ -49,7 +48,7 @@ async function configure(opts, program) {
       })
       .option('secret', {
         alias: 's',
-        describe: 'Shared secret key for network keys with this node'
+        describe: 'Shared secret key'
       })
       .option('name', {
       alias: 'n',
@@ -198,6 +197,8 @@ async function start() {
 
       resolvers.setMaxListeners(Infinity)
       resolvers.on('error', onerror)
+      resolvers.on('peer', onpeer)
+      resolvers.on('listen', onlistening)
 
       const reader = handshake.createReadStream()
 
@@ -212,6 +213,8 @@ async function start() {
         else {
           writer.write(Buffer.from('Identity Archiving Failed'))
         }
+        writer.end()
+        handshake.destroy()
       }))
 
       async function oncreate(id, key) {
@@ -235,10 +238,12 @@ async function start() {
           await cfs.download('.')
           const files = await cfs.readdir('.')
           info('%s: Did sync files:', pkg.name, id.toString('hex'), key.toString('hex'), files)
+          info('%s: Finished Archiving DID: %s', pkg.name, key.toString('hex'))
         } catch (err) {
           debug(err.stack || err)
           error(err.message)
           warn('%s: Empty archive!', pkg.name, id.toString('hex'), key.toString('hex'))
+          return false
         }
         return true
       }
@@ -254,15 +259,6 @@ async function start() {
 
       function onpeer(peer) {
         info('Got peer:', peer.id)
-      }
-
-      function onclose() {
-        warn('identity-archiver: Closed')
-      }
-
-      function onlistening() {
-        const { port } = network.address()
-        info('identity-archiver: Listening on port %s', port)
       }
     }
 
