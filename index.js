@@ -1,11 +1,9 @@
 const debug = require('debug')('ara:network:node:identity-archiver')
-const { createNetwork } = require('ara-identity-archiver/network')
 const { createChannel } = require('ara-network/discovery/channel')
 const { createServer } = require('ara-network/discovery')
 const { unpack, keyRing } = require('ara-network/keys')
 const { Handshake } = require('ara-network/handshake')
 const { info, warn, error } = require('ara-console')
-const archiver = require('ara-identity-archiver')
 const { createCFS } = require('cfsnet/create')
 const multidrive = require('multidrive')
 const ss = require('ara-secret-storage')
@@ -23,8 +21,6 @@ const pify = require('pify')
 const net = require('net')
 const pump = require('pump')
 const rc = require('./rc')()
-
-require('ara-identity/rc')()
 
 const conf = {
   port: 0,
@@ -51,8 +47,8 @@ async function configure(opts, program) {
         describe: 'Shared secret key'
       })
       .option('name', {
-      alias: 'n',
-      describe: 'Human readable network keys name.'
+        alias: 'n',
+        describe: 'Human readable network keys name.'
       })
       .option('keys', {
         alias: 'k',
@@ -194,23 +190,20 @@ async function start() {
     }
 
     async function onokay() {
-
       resolvers.setMaxListeners(Infinity)
       resolvers.on('error', onerror)
       resolvers.on('peer', onpeer)
-      resolvers.on('listen', onlistening)
 
       const reader = handshake.createReadStream()
 
       reader.on('data', (async (data) => {
         const id = data.slice(64)
-        const key = data.slice(0,32)
-        const result = await oncreate(id,key)
+        const key = data.slice(0, 32)
+        const result = await oncreate(id, key)
         const writer = handshake.createWriteStream()
         if (result) {
           writer.write(Buffer.from('Identity Archived'))
-        }
-        else {
+        } else {
           writer.write(Buffer.from('Identity Archiving Failed'))
         }
         writer.end()
@@ -226,7 +219,7 @@ async function start() {
         info('%s: Got archive:', pkg.name, id.toString('hex'), key.toString('hex'))
 
         cfs.once('sync', () => {
-            info('%s: Did sync archive:', pkg.name, id.toString('hex'), key.toString('hex'))
+          info('%s: Did sync archive:', pkg.name, id.toString('hex'), key.toString('hex'))
         })
 
         /* eslint-disable no-shadow */
@@ -251,7 +244,7 @@ async function start() {
       function onerror(err) {
         debug('error:', err)
         if (err && 'EADDRINUSE' === err.code) {
-          return network.swarm.listen(0)
+          return channel.listen(0)
         }
         warn('identity-archiver: error:', err.message)
         return null
@@ -261,7 +254,6 @@ async function start() {
         info('Got peer:', peer.id)
       }
     }
-
   }
 
   return true
@@ -273,10 +265,8 @@ async function stop() {
   }
 
   warn('identity-archiver: Stopping network.swarm')
-  channel.destroy()
-
+  channel.destroy(onclose)
   return true
-
   function onclose() {
     channel = null
   }
