@@ -65,8 +65,6 @@ async function configure(opts, program) {
     conf.secret = argv.secret
     conf.identity = argv.identity
   }
-
-  return extend(true, conf, opts)
 }
 
 async function start() {
@@ -200,11 +198,10 @@ async function start() {
         const result = await oncreate(id, key)
         const writer = handshake.createWriteStream()
         if (result) {
-          writer.write(Buffer.from('0xDEF'))
+          writer.write(Buffer.from('ACK'))
         } else {
-          writer.write(Buffer.from('0xDF0'))
+          writer.write(Buffer.from('ERR'))
         }
-        writer.end()
         handshake.destroy()
       }))
 
@@ -262,7 +259,7 @@ async function stop() {
     return false
   }
 
-  warn('identity-archiver: Stopping network.swarm')
+  warn('identity-archiver: Stopping %s', pkg.name)
   channel.destroy(onclose)
   return true
   function onclose() {
