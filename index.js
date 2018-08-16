@@ -114,8 +114,6 @@ async function start() {
     pathPrefix
   )
 
-  Object.assign(conf, { discoveryKey })
-
   resolvers = createServer({
     stream(peer) {
       const { port } = resolvers.address()
