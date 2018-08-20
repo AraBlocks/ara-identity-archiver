@@ -62,3 +62,4 @@ typings/
 .cfs/
 nodes.json
 package-lock.json
+keystore
