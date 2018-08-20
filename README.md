@@ -39,22 +39,23 @@ The `ara-network-node-identity-archiver` module can be used programmatically as 
 conforms to the [`ara-network` node interface][interface].
 
 ```js
-const { argv } = require('yargs')
-const identity-archiver = require('ara-network-node-identity-archiver')
+const identityArchiver = require('ara-network-node-identity-archiver')
 const rc = require('ara-runtime-configuration')
+const program = require('yargs')
+const { argv } = program
 
 void async function main() {
-  try { await identity-archiver.configure(rc.network.node.identity-archiver, require('yargs')) }
+  try { await identityArchiver.configure(rc.network.node.identity-archiver, program) }
   catch (err) {
-    await identity-archiver.configure({
-      identity: <DID>,
-      secret: <shared-secret-string>,
-      name: <keyring-name-entry>,
-      keyring: <path-to-keyring-secret-file>
+    await identityArchiver.configure({
+      identity: DID,
+      secret: shared-secret-string,
+      name: keyring-name-entry,
+      keyring: path-to-keyring-secret-file
     },
-    require('yargs'))
+    program)
   }
-  await identity-archiver.start(argv)
+  await identityArchiver.start(argv)
 }()
 ```
 
