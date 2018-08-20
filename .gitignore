@@ -63,3 +63,5 @@ typings/
 nodes.json
 package-lock.json
 keystore
+keyring
+keyring.pub
