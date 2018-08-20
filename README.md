@@ -50,7 +50,7 @@ void async function main() {
       identity: <DID>,
       secret: <shared-secret-string>,
       name: <keyring-name-entry>,
-      keyring: <path-to-keyring-public-file>
+      keyring: <path-to-keyring-secret-file>
     },
     require('yargs'))
   }
@@ -64,7 +64,7 @@ With the `ann` (or `ara-network-node`) command line interface, you can
 invoke this network node by running the following:
 
 ```sh
-$ ann -t . -i <DID> -s <shared-secret-string> -n <keyring-name-entry> -k <path-to-keyring-public-file>
+$ ann -t . -i <DID> -s <shared-secret-string> -n <keyring-name-entry> -k <path-to-keyring-secret-file>
 ```
 
 To see usage help about this network node interface, run the following:
