@@ -13,6 +13,10 @@ $ npm install ara-network ara-network-node-identity-archiver
 
 ## Usage
 
+### Prerequisite
+
+* All ARA network nodes require an ARA ID & a shared network key to be generated. Please refer to [ara-network's](https://github.com/AraBlocks/ara-network) ANK CLI
+
 ### Runtime Configuration
 
 [rc]: https://github.com/arablocks/ara-runtime-configuration
@@ -41,7 +45,15 @@ const rc = require('ara-runtime-configuration')
 
 void async function main() {
   try { await identity-archiver.configure(rc.network.node.identity-archiver, require('yargs')) }
-  catch (err) { await identity-archiver.configure(null, require('yargs')) }
+  catch (err) {
+    await identity-archiver.configure({
+      identity: <DID>,
+      secret: <shared-secret-string>,
+      name: <keyring-name-entry>,
+      keyring: <path-to-keyring-public-file>
+    },
+    require('yargs'))
+  }
   await identity-archiver.start(argv)
 }()
 ```
@@ -52,13 +64,13 @@ With the `ann` (or `ara-network-node`) command line interface, you can
 invoke this network node by running the following:
 
 ```sh
-$ ann --type identity-archiver
+$ ann -t . -i <DID> -s <shared-secret-string> -n <keyring-name-entry> -k <path-to-keyring-public-file>
 ```
 
 To see usage help about this network node interface, run the following:
 
 ```sh
-$ ann --type identity-archiver --help
+$ ann -t . --help
 ```
 
 ## See Also

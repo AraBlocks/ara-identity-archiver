@@ -49,7 +49,7 @@ async function configure(opts, program) {
         alias: 'n',
         describe: 'Human readable network keys name.'
       })
-      .option('keys', {
+      .option('keyring', {
         alias: 'k',
         describe: 'Path to ARA network keys'
       })
@@ -59,7 +59,7 @@ async function configure(opts, program) {
       })
 
     conf.port = argv.port
-    conf.keys = argv.keys
+    conf.keyring = argv.keyring
     conf.name = argv.name
     conf.secret = argv.secret
     conf.identity = argv.identity
@@ -96,7 +96,7 @@ async function start() {
   const keystore = JSON.parse(await pify(readFile)(path, 'utf8'))
   const secretKey = ss.decrypt(keystore, { key: password.slice(0, 16) })
 
-  const keyring = keyRing(conf.keys, { secret: secretKey })
+  const keyring = keyRing(conf.keyring, { secret: secretKey })
   const buffer = await keyring.get(conf.name)
   const unpacked = unpack({ buffer })
 
