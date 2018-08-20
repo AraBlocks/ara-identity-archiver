@@ -65,3 +65,4 @@ package-lock.json
 keystore
 keyring
 keyring.pub
+.DS_Store
