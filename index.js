@@ -258,6 +258,8 @@ async function start() {
       })
 
       async function oncreate(id, key) {
+        let needsDownload = false
+
         const cfs = await pify(drives.create)({
           id: id.toString('hex'),
           key: key.toString('hex'),
@@ -274,6 +276,7 @@ async function start() {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           await cfs.access('.')
         } catch (err) {
+          needsDownload = true
           info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
           await new Promise(done => cfs.once('update', done))
         }
@@ -281,7 +284,11 @@ async function start() {
         // eslint-disable-next-line no-shadow
         try {
           info('Downloading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
-          await cfs.download('.')
+          if (needsDownload) {
+            await cfs.download('.')
+          } else {
+            cfs.download('.')
+          }
 
           info('Reading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           const files = await cfs.readdir('.')
