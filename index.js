@@ -184,13 +184,7 @@ async function start() {
   }
 
   function onconnection(socket) {
-    let kp = null
-    if (process.env.DERIVE_KEY_PAIR) {
-      kp = derive({ secretKey, name: conf.name })
-    } else {
-      kp = { publicKey, secretKey }
-    }
-
+    const kp = derive({ secretKey, name: conf.name })
     const handshake = new Handshake({
       publicKey: kp.publicKey,
       secretKey: kp.secretKey,
