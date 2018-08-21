@@ -148,7 +148,10 @@ async function start() {
       try {
         const config = Object.assign({}, opts, { id, key, shallow: true })
         const cfs = await createCFS(config)
-        setTimeout(() => resolvers.join(cfs.discoveryKey), 1000)
+        setTimeout(() => {
+          info('join: %s', cfs.discoveryKey.toString('hex'))
+          resolvers.join(cfs.discoveryKey, { announce: true })
+        }, 1000)
         return done(null, cfs)
       } catch (err) {
         done(err)
