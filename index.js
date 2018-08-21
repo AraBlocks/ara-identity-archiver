@@ -1,30 +1,34 @@
-const debug = require('debug')('ara:network:node:identity-archiver')
+const { unpack, keyRing, derive } = require('ara-network/keys')
+const { info, warn, error } = require('ara-console')
 const { createChannel } = require('ara-network/discovery/channel')
 const { createServer } = require('ara-network/discovery')
-const { unpack, keyRing } = require('ara-network/keys')
 const { Handshake } = require('ara-network/handshake')
-const { info, warn, error } = require('ara-console')
-const { createCFS } = require('cfsnet/create')
+const { readFile } = require('fs')
+const { resolve } = require('path')
 const multidrive = require('multidrive')
-const ss = require('ara-secret-storage')
-const crypto = require('ara-crypto')
 const inquirer = require('inquirer')
 const through = require('through2')
-const { resolve } = require('path')
-const { readFile } = require('fs')
 const { DID } = require('did-uri')
+const crypto = require('ara-crypto')
 const toilet = require('toiletdb')
-const pkg = require('./package')
 const mkdirp = require('mkdirp')
+const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
-const net = require('net')
 const pump = require('pump')
+const pkg = require('./package')
+const net = require('net')
 const rc = require('./rc')()
+const ss = require('ara-secret-storage')
 
 const conf = {
+  identity: null,
+  keyring: null,
+  secret: null,
+  name: null,
   port: 0,
-  key: null,
-  dns: { loopback: true },
+  dns: {
+    loopback: true
+  },
 }
 
 let resolvers = null
@@ -37,31 +41,31 @@ async function getInstance() {
 async function configure(opts, program) {
   if (program) {
     const { argv } = program
-      .option('identity', {
-        alias: 'i',
+      .option('i', {
+        alias: 'identity',
         describe: 'Ara Identity for the network node'
       })
-      .option('secret', {
-        alias: 's',
+      .option('s', {
+        alias: 'secret',
         describe: 'Shared secret key'
       })
-      .option('name', {
-        alias: 'n',
+      .option('n', {
+        alias: 'name',
         describe: 'Human readable network keys name.'
       })
-      .option('keyring', {
-        alias: 'k',
+      .option('k', {
+        alias: 'keyring',
         describe: 'Path to ARA network keys'
       })
-      .option('port', {
-        alias: 'p',
+      .option('p', {
+        alias: 'port',
         describe: 'Port for network node to listen on.'
       })
 
     conf.port = argv.port
-    conf.keyring = argv.keyring
     conf.name = argv.name
     conf.secret = argv.secret
+    conf.keyring = argv.keyring
     conf.identity = argv.identity
   }
 }
@@ -82,9 +86,11 @@ async function start() {
         'Passphrase:'
     }
   ])
+
   if (0 !== conf.identity.indexOf('did:ara:')) {
     conf.identity = `did:ara:${conf.identity}`
   }
+
   const did = new DID(conf.identity)
   const publicKey = Buffer.from(did.identifier, 'hex')
 
@@ -104,12 +110,13 @@ async function start() {
   const server = net.createServer(onconnection)
   server.listen(conf.port, onlisten)
 
-  const pathPrefix = crypto.blake2b(Buffer.from(conf.name)).toString('hex')
   // overload CFS roof directory to be the archive root directory
-  process.env.CFS_ROOT_DIR = resolve(
-    rc.network.identity.archive.root,
-    pathPrefix
-  )
+  // and then require `createCFS` after this has been overloaded
+  process.env.CFS_ROOT_DIR = resolve(rc.network.identity.archive.root)
+  await pify(mkdirp)(process.env.CFS_ROOT_DIR)
+
+  // eslint-disable-next-line global-require
+  const { createCFS } = require('cfsnet/create')
 
   resolvers = createServer({
     stream(peer) {
@@ -125,10 +132,13 @@ async function start() {
     }
   })
 
+  resolvers.setMaxListeners(Infinity)
+  resolvers.on('error', onerror)
+  resolvers.on('peer', onpeer)
+
   info('%s: discovery key:', pkg.name, discoveryKey.toString('hex'))
 
-  await pify(mkdirp)(rc.network.identity.archive.nodes.store)
-  const nodes = resolve(rc.network.identity.archive.nodes.store, pathPrefix)
+  const nodes = rc.network.identity.archive.nodes.store
   const store = toilet(nodes)
   const drives = await pify(multidrive)(
     store,
@@ -158,51 +168,94 @@ async function start() {
     channel.join(discoveryKey, port)
   }
 
+  function onerror(err) {
+    debug(err.stack || err)
+
+    if (err && 'EADDRINUSE' === err.code) {
+      return channel.listen(0)
+    }
+
+    warn('identity-archiver: error:', err.message)
+    return null
+  }
+
+  function onpeer(peer) {
+    info('Got peer:', peer.id)
+  }
+
   function onconnection(socket) {
+    let kp = null
+    if (process.env.DERIVE_KEY_PAIR) {
+      kp = derive({ secretKey, name: conf.name })
+    } else {
+      kp = { publicKey, secretKey }
+    }
+
     const handshake = new Handshake({
-      publicKey,
-      secretKey,
+      publicKey: kp.publicKey,
+      secretKey: kp.secretKey,
       secret,
       remote: { publicKey: unpacked.publicKey },
       domain: { publicKey: unpacked.domain.publicKey }
     })
 
     handshake.on('hello', onhello)
+    handshake.on('error', ondone)
     handshake.on('auth', onauth)
     handshake.on('okay', onokay)
 
-    pump(handshake, socket, handshake, (err) => {
+    pump(handshake, socket, handshake, ondone)
+
+    function ondone(err) {
       if (err) {
+        debug(err.stack || err)
         warn(err.message)
       }
-    })
 
-    function onhello() {
-      handshake.hello()
+      handshake.destroy()
+      socket.destroy()
     }
 
-    function onauth() {
+    function onhello(hello) {
+      info(
+        'Got hello from peer: key=%s mac=%s',
+        hello.publicKey.toString('hex'),
+        hello.mac.toString('hex')
+      )
+
+      process.nextTick(() => {
+        handshake.hello()
+      })
     }
 
-    async function onokay() {
-      resolvers.setMaxListeners(Infinity)
-      resolvers.on('error', onerror)
-      resolvers.on('peer', onpeer)
+    function onauth(auth) {
+      info(
+        'Authenticated peer: key=%s signature=%s',
+        auth.publicKey.toString('hex'),
+        auth.signature.toString('hex')
+      )
+    }
+
+    async function onokay(okay) {
+      info('Got okay from peer: signature=%s', okay.toString('hex'))
 
       const reader = handshake.createReadStream()
 
-      reader.on('data', (async (data) => {
+      reader.on('data', async (data) => {
         const id = data.slice(64)
         const key = data.slice(0, 32)
         const result = await oncreate(id, key)
         const writer = handshake.createWriteStream()
+
         if (result) {
           writer.write(Buffer.from('ACK'))
         } else {
           writer.write(Buffer.from('ERR'))
         }
+
         handshake.destroy()
-      }))
+        socket.destroy()
+      })
 
       async function oncreate(id, key) {
         const cfs = await pify(drives.create)({
@@ -210,42 +263,39 @@ async function start() {
           key: key.toString('hex'),
         })
 
-        info('%s: Got archive:', pkg.name, id.toString('hex'), key.toString('hex'))
+        info('Got archive: key=%s', key.toString('hex'))
 
         cfs.once('sync', () => {
-          info('%s: Did sync archive:', pkg.name, id.toString('hex'), key.toString('hex'))
+          info('Did sync archive: key=%s', key.toString('hex'))
         })
 
-        /* eslint-disable no-shadow */
-        try { await cfs.access('.') } catch (err) {
-          await new Promise(resolve => cfs.once('update', resolve))
-        }
-        /* eslint-enable no-shadow */
+        // eslint-disable-next-line no-shadow
         try {
+          info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
+          await cfs.access('.')
+        } catch (err) {
+          info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
+          await new Promise(done => cfs.once('update', done))
+        }
+
+        // eslint-disable-next-line no-shadow
+        try {
+          info('Downloading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           await cfs.download('.')
+
+          info('Reading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           const files = await cfs.readdir('.')
-          info('%s: Did sync files:', pkg.name, id.toString('hex'), key.toString('hex'), files)
-          info('%s: Finished Archiving DID: %s', pkg.name, key.toString('hex'))
+
+          info('Did sync files: key=%s', key.toString('hex'), files)
+          info('Finished archiving AID: "did:ara:%s"', key.toString('hex'))
         } catch (err) {
           debug(err.stack || err)
           error(err.message)
-          warn('%s: Empty archive!', pkg.name, id.toString('hex'), key.toString('hex'))
+          warn('Failed to sync archive for AID: "did:ara:%s"', key.toString('hex'))
           return false
         }
+
         return true
-      }
-
-      function onerror(err) {
-        debug('error:', err)
-        if (err && 'EADDRINUSE' === err.code) {
-          return channel.listen(0)
-        }
-        warn('identity-archiver: error:', err.message)
-        return null
-      }
-
-      function onpeer(peer) {
-        info('Got peer:', peer.id)
       }
     }
   }
@@ -261,6 +311,7 @@ async function stop() {
   warn('identity-archiver: Stopping %s', pkg.name)
   channel.destroy(onclose)
   return true
+
   function onclose() {
     channel = null
   }
