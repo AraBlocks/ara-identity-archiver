@@ -40,29 +40,35 @@ async function getInstance() {
 }
 
 async function configure(opts, program) {
-  const { argv } = program
-    .option('i', {
-      alias: 'identity',
-      default: rc.network.identity.whoami,
-      describe: 'Ara Identity for the network node'
-    })
-    .option('s', {
-      alias: 'secret',
-      describe: 'Shared secret key'
-    })
-    .option('n', {
-      alias: 'name',
-      describe: 'Human readable network keys name.'
-    })
-    .option('k', {
-      alias: 'keyring',
-      default: rc.network.identity.keyring,
-      describe: 'Path to ARA network keys'
-    })
-    .option('p', {
-      alias: 'port',
-      describe: 'Port for network node to listen on.'
-    })
+  let argv = {}
+  if (program) {
+    program
+      .option('i', {
+        alias: 'identity',
+        default: rc.network.identity.whoami,
+        describe: 'Ara Identity for the network node'
+      })
+      .option('s', {
+        alias: 'secret',
+        describe: 'Shared secret key'
+      })
+      .option('n', {
+        alias: 'name',
+        describe: 'Human readable network keys name.'
+      })
+      .option('k', {
+        alias: 'keyring',
+        default: rc.network.identity.keyring,
+        describe: 'Path to ARA network keys'
+      })
+      .option('p', {
+        alias: 'port',
+        describe: 'Port for network node to listen on.'
+      })
+
+    // eslint-disable-next-line prefer-destructuring
+    argv = program.argv
+  }
 
   conf.port = select('port', argv, opts, conf)
   conf.name = select('name', argv, opts, conf)
