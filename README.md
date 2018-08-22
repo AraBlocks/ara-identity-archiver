@@ -67,7 +67,7 @@ With the `ann` (or `ara-network-node`) command line interface, you can
 invoke this network node by running the following:
 
 ```sh
-$ ann -t . -i <DID> \
+$ ann -t ara-network-node-identity-archiver -i <DID> \
       -s <shared-secret-string> \
       -n <keyring-name-entry> \
       -k <path-to-keyring-secret-file>
