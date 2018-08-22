@@ -1,6 +1,6 @@
 const { resolve } = require('path')
 const extend = require('extend')
-const rc = require('ara-runtime-configuration')
+const rc = require('ara-identity/rc')
 
 const defaults = () => ({
   network: {
@@ -11,7 +11,6 @@ const defaults = () => ({
           store: resolve(rc().data.root, 'identities', 'archive', 'nodes')
         }
       },
-      root: resolve(rc().data.root, 'identities')
     }
   }
 })
