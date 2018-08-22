@@ -29,6 +29,7 @@
     "ara-secret-storage": "github:arablocks/ara-secret-storage",
     "cfsnet": "github:arablocks/cfsnet",
     "debug": "^3.1.0",
+    "defined": "^1.0.0",
     "did-uri": "github:arablocks/did-uri",
     "extend": "^3.0.1",
     "inquirer": "^5.2.0",
