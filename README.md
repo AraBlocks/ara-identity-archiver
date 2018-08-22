@@ -8,14 +8,16 @@ An ARA network node that archives identities in a network.
 ## Installation
 
 ```sh
-$ npm install ara-network ara-network-node-identity-archiver
+$ npm install ara-identity ara-network ara-network-node-identity-archiver
 ```
 
 ## Usage
 
 ### Prerequisite
 
-* All ARA network nodes require an ARA ID & a shared network key to be generated. Please refer to [ara-network](https://github.com/AraBlocks/ara-network)'s [ANK CLI](https://github.com/AraBlocks/ara-network/blob/master/bin/ara-network-keys)
+* All Ara network nodes require an ARA ID & a shared network key to be generated. Please refer to [ara-network](https://github.com/AraBlocks/ara-network)'s [ANK CLI](https://github.com/AraBlocks/ara-network/blob/master/bin/ara-network-keys) & [ara-identity](https://github.com/AraBlocks/ara-identity)'s [AID CLI](https://github.com/AraBlocks/ara-identity/blob/master/bin/ara-identity)
+* To run Ara network nodes through the command line, please refer to [ara-network](https://github.com/AraBlocks/ara-network)'s [ANN CLI](https://github.com/AraBlocks/ara-network/blob/master/bin/ara-network-node)
+
 
 ### Runtime Configuration
 
@@ -27,13 +29,13 @@ $ npm install ara-network ara-network-node-identity-archiver
 options below in _INI_ format.
 
 ```ini
-[network.node.identity-archiver]
+[network.node.identity.archiver]
 ;; @TODO
 ```
 
 ### Programmatic
 
-[interface]: https://github.com/AraBlocks/ara-network/blob/master/nodes/README.md
+[interface]: https://github.com/AraBlocks/ara-network/blob/master/README.md
 
 The `ara-network-node-identity-archiver` module can be used programmatically as it
 conforms to the [`ara-network` node interface][interface].
@@ -45,13 +47,13 @@ const program = require('yargs')
 const { argv } = program
 
 void async function main() {
-  try { await identityArchiver.configure(rc.network.node.identity-archiver, program) }
+  try { await identityArchiver.configure(rc.network.node.identity.archiver, program) }
   catch (err) {
     await identityArchiver.configure({
       identity: DID,
-      secret: shared-secret-string,
-      name: keyring-name-entry,
-      keyring: path-to-keyring-secret-file
+      secret: 'shared-secret-string',
+      name: 'keyring-name-entry',
+      keyring: 'path-to-keyring-secret-file',
     },
     program)
   }
@@ -71,14 +73,20 @@ $ ann -t . -i <DID> \
       -k <path-to-keyring-secret-file>
 ```
 
-To see usage help about this network node interface, run the following:
+To see usage help about this network node interface, ensure ara-network is linked:
+ ```sh
+$ cd ~/ara-network-node-identity-archiver && npm link
+$ cd ~/ara-network && npm link ara-network-node-identity-archiver
+```
+and run the following:
 
 ```sh
-$ ann -t . --help
+$ ann -t ara-network-node-identity-archiver --help
 ```
 
 ## See Also
 
+* [ara-identity](https://github.com/AraBlocks/ara-identity)
 * [ara-network](https://github.com/arablocks/ara-network)
 * [bittorrent-identity-archiver](https://www.npmjs.com/package/bittorrent-identity-archiver)
 * [k-rpc](https://github.com/mafintosh/k-rpc)

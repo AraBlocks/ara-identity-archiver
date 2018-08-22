@@ -11,10 +11,7 @@ const defaults = () => ({
           store: resolve(rc().data.root, 'identities', 'archive', 'nodes')
         }
       },
-      root: resolve(rc().data.root, 'identities'),
-      keystore: resolve(rc().data.root, 'identities', 'keystore'),
-      ethKeystore: resolve(rc().data.root, 'identities', 'keystore', 'eth'),
-      araKeystore: resolve(rc().data.root, 'identities', 'keystore', 'ara')
+      root: resolve(rc().data.root, 'identities')
     }
   }
 })
