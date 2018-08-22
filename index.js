@@ -6,6 +6,7 @@ const { Handshake } = require('ara-network/handshake')
 const { readFile } = require('fs')
 const { resolve } = require('path')
 const multidrive = require('multidrive')
+const coalesce = require('defined')
 const inquirer = require('inquirer')
 const through = require('through2')
 const { DID } = require('did-uri')
@@ -39,53 +40,63 @@ async function getInstance() {
 }
 
 async function configure(opts, program) {
-  if (program) {
-    const { argv } = program
-      .option('i', {
-        alias: 'identity',
-        describe: 'Ara Identity for the network node'
-      })
-      .option('s', {
-        alias: 'secret',
-        describe: 'Shared secret key'
-      })
-      .option('n', {
-        alias: 'name',
-        describe: 'Human readable network keys name.'
-      })
-      .option('k', {
-        alias: 'keyring',
-        describe: 'Path to ARA network keys'
-      })
-      .option('p', {
-        alias: 'port',
-        describe: 'Port for network node to listen on.'
-      })
+  const { argv } = program
+    .option('i', {
+      alias: 'identity',
+      default: rc.network.identity.whoami,
+      describe: 'Ara Identity for the network node'
+    })
+    .option('s', {
+      alias: 'secret',
+      describe: 'Shared secret key'
+    })
+    .option('n', {
+      alias: 'name',
+      describe: 'Human readable network keys name.'
+    })
+    .option('k', {
+      alias: 'keyring',
+      default: rc.network.identity.keyring,
+      describe: 'Path to ARA network keys'
+    })
+    .option('p', {
+      alias: 'port',
+      describe: 'Port for network node to listen on.'
+    })
 
-    conf.port = argv.port
-    conf.name = argv.name
-    conf.secret = argv.secret
-    conf.keyring = argv.keyring
-    conf.identity = argv.identity
+  conf.port = select('port', argv, opts, conf)
+  conf.name = select('name', argv, opts, conf)
+  conf.secret = select('secret', argv, opts, conf)
+  conf.keyring = select('keyring', argv, opts, conf)
+  conf.identity = select('identity', argv, opts, conf)
+
+  return conf
+
+  function select(k, ...args) {
+    return coalesce(...args.map(o => o[k]))
   }
 }
 
-async function start() {
+async function start(argv) {
   if (channel) {
     return false
   }
 
   channel = createChannel({ })
 
-  let { password } = await inquirer.prompt([
-    {
+  let { password } = argv
+
+  if (!password) {
+    const res = await inquirer.prompt([ {
       type: 'password',
       name: 'password',
       message:
-        'Please enter the passphrase associated with the node identity.\n' +
-        'Passphrase:'
-    }
-  ])
+      'Please enter the passphrase associated with the node identity.\n' +
+      'Passphrase:'
+    } ])
+    // eslint-disable-next-line
+    password = res.password
+  }
 
   if (0 !== conf.identity.indexOf('did:ara:')) {
     conf.identity = `did:ara:${conf.identity}`
