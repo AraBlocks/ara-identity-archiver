@@ -18,6 +18,7 @@ const pify = require('pify')
 const pump = require('pump')
 const pkg = require('./package')
 const net = require('net')
+const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
@@ -149,14 +150,38 @@ async function start(argv) {
     }
   })
 
+  info('%s: discovery key:', pkg.name, discoveryKey.toString('hex'))
   resolvers.setMaxListeners(Infinity)
   resolvers.on('error', onerror)
   resolvers.on('peer', onpeer)
 
-  info('%s: discovery key:', pkg.name, discoveryKey.toString('hex'))
+  try {
+    await pify(fs.access)(rc.network.identity.archive.nodes.store)
+    const stat = pify(fs.stat)(rc.network.identity.archive.nodes.store)
+    if (stat.isFile()) {
+      // eslint-disable-next-line function-paren-newline
+      throw new TypeError(
+        `Expecting '${rc.network.identity.archive.nodes.store}' ` +
+        'to be a directory, but it is a file. Please remove it and try again.')
+    }
+  } catch (err) {
+    debug(err)
+  }
 
-  const nodes = rc.network.identity.archive.nodes.store
-  const store = toilet(nodes)
+  // ensure the node store root directory exists
+  await pify(mkdirp)(rc.network.identity.archive.nodes.store)
+
+  // create a path to store nodes for this archiver based on the identity
+  // of this archiver
+  const nodeStore = resolve(
+    rc.network.identity.archive.nodes.store,
+    `${hash}.json`
+  )
+
+  // open a toiletdb instance to the node store for this archiver where
+  // we map discovery keys to cfs configuration used at boot up or when
+  // a peer requests to be archived
+  const store = toilet(nodeStore)
   const drives = await pify(multidrive)(
     store,
     async (opts, done) => {
