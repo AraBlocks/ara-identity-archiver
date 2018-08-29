@@ -54,8 +54,8 @@ async function configure(opts, program) {
         describe: 'Shared secret key'
       })
       .option('n', {
-        alias: 'name',
-        describe: 'Human readable network keys name.'
+        alias: 'network',
+        describe: 'Human readable network name for keys in keyring.'
       })
       .option('k', {
         alias: 'keyring',
@@ -72,10 +72,14 @@ async function configure(opts, program) {
   }
 
   conf.port = select('port', argv, opts, conf)
-  conf.name = select('name', argv, opts, conf)
   conf.secret = select('secret', argv, opts, conf)
   conf.keyring = select('keyring', argv, opts, conf)
+  conf.network = select('network', argv, opts, conf) || argv.name
   conf.identity = select('identity', argv, opts, conf)
+
+  if (argv.name && !argv.network) {
+    warn('Please use \'--network\' instead of \'--name\'.')
+  }
 
   return conf
 
@@ -121,7 +125,7 @@ async function start(argv) {
   const secretKey = ss.decrypt(keystore, { key: password.slice(0, 16) })
 
   const keyring = keyRing(conf.keyring, { secret: secretKey })
-  const buffer = await keyring.get(conf.name)
+  const buffer = await keyring.get(conf.network)
   const unpacked = unpack({ buffer })
 
   const { discoveryKey } = unpacked
@@ -229,7 +233,7 @@ async function start(argv) {
   }
 
   function onconnection(socket) {
-    const kp = derive({ secretKey, name: conf.name })
+    const kp = derive({ secretKey, name: conf.network })
     const handshake = new Handshake({
       publicKey: kp.publicKey,
       secretKey: kp.secretKey,
