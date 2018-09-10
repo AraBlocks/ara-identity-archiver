@@ -1,7 +1,7 @@
 const { unpack, keyRing, derive } = require('ara-network/keys')
-const { info, warn, error } = require('ara-console')
+const { info, warn, error } = require('ara-console')('identity-archiver')
 const { createChannel } = require('ara-network/discovery/channel')
-const { createServer } = require('ara-network/discovery')
+const { createSwarm } = require('ara-network/discovery')
 const { Handshake } = require('ara-network/handshake')
 const { readFile } = require('fs')
 const { resolve } = require('path')
@@ -23,11 +23,12 @@ const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
 const conf = {
+  network: null,
   identity: null,
   keyring: null,
   secret: null,
-  name: null,
   port: 0,
+
   dns: {
     loopback: true
   },
@@ -44,26 +45,49 @@ async function configure(opts, program) {
   let argv = {}
   if (program) {
     program
-      .option('i', {
-        alias: 'identity',
+      .wrap(null)
+      .version('version', 'Show version number', pkg.version)
+      .group([ 'identity', 'secret', 'keyring', 'network' ], 'Network Options:')
+      .option('identity', {
+        alias: 'i',
         default: rc.network.identity.whoami,
-        describe: 'Ara Identity for the network node'
+        requiresArg: true,
+        required: true,
+
+        defaultDescription: (
+          rc.network.identity.whoami
+            ? `${rc.network.identity.whoami.slice(0, 16)}...`
+            : undefined
+        ),
+
+        describe:
+`A valid, local, and resolvable Ara identity DID
+URI of the owner of the given keyring. You will be
+prompted for the associated passphrase`,
       })
-      .option('s', {
-        alias: 'secret',
-        describe: 'Shared secret key'
+      .option('secret', {
+        alias: 's',
+        describe: 'Shared secret key for the associated network keys',
+        required: true,
+        requiresArg: true,
       })
-      .option('n', {
-        alias: 'network',
-        describe: 'Human readable network name for keys in keyring.'
-      })
-      .option('k', {
-        alias: 'keyring',
+      .option('keyring', {
+        alias: 'k',
         default: rc.network.identity.keyring,
-        describe: 'Path to ARA network keys'
+        describe: 'Path to Ara network keyring file',
+        required: true,
+        requiresArg: true,
       })
-      .option('p', {
-        alias: 'port',
+      .option('network', {
+        alias: 'n',
+        describe: 'Human readable network name for keys in keyring',
+        required: true,
+        requiresArg: true,
+      })
+
+    program.group([ 'port' ], 'Server Options:')
+      .option('port', {
+        alias: 'p',
         describe: 'Port for network node to listen on.'
       })
 
@@ -105,6 +129,7 @@ async function start(argv) {
       'Please enter the passphrase associated with the node identity.\n' +
       'Passphrase:'
     } ])
+
     // eslint-disable-next-line
     password = res.password
   }
@@ -140,7 +165,7 @@ async function start(argv) {
   // eslint-disable-next-line global-require
   const { createCFS } = require('cfsnet/create')
 
-  resolvers = createServer({
+  resolvers = createSwarm({
     stream(peer) {
       const { port } = resolvers.address()
       if (peer && peer.channel && port !== peer.port) {
@@ -150,11 +175,12 @@ async function start(argv) {
           }
         }
       }
+
       return through()
     }
   })
 
-  info('%s: discovery key:', pkg.name, discoveryKey.toString('hex'))
+  info('discovery key:', discoveryKey.toString('hex'))
   resolvers.setMaxListeners(Infinity)
   resolvers.on('error', onerror)
   resolvers.on('peer', onpeer)
@@ -188,16 +214,20 @@ async function start(argv) {
   const store = toilet(nodeStore)
   const drives = await pify(multidrive)(
     store,
+
+    // create hook
     async (opts, done) => {
       const id = Buffer.from(opts.id, 'hex').toString('hex')
       const key = Buffer.from(opts.key, 'hex')
       try {
         const config = Object.assign({}, opts, { id, key, shallow: true })
         const cfs = await createCFS(config)
+
         setTimeout(() => {
-          info('join: %s', cfs.discoveryKey.toString('hex'))
+          info('join:', cfs.discoveryKey.toString('hex'))
           resolvers.join(cfs.discoveryKey, { announce: true })
         }, 1000)
+
         return done(null, cfs)
       } catch (err) {
         done(err)
@@ -205,6 +235,7 @@ async function start(argv) {
       return null
     },
 
+    // close hook
     async (cfs, done) => {
       try { await cfs.close() } catch (err) { return done(err) }
       return done(null)
@@ -218,14 +249,12 @@ async function start(argv) {
   }
 
   function onerror(err) {
-    debug(err.stack || err)
-
     if (err && 'EADDRINUSE' === err.code) {
-      return channel.listen(0)
+      channel.listen(0)
+    } else {
+      debug(err.stack || err)
+      warn('error:', err.message)
     }
-
-    warn('identity-archiver: error:', err.message)
-    return null
   }
 
   function onpeer(peer) {
@@ -314,7 +343,6 @@ async function start(argv) {
           info('Did sync archive: key=%s', key.toString('hex'))
         })
 
-        // eslint-disable-next-line no-shadow
         try {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           await cfs.access('.')
@@ -324,7 +352,6 @@ async function start(argv) {
           await new Promise(done => cfs.once('update', done))
         }
 
-        // eslint-disable-next-line no-shadow
         try {
           info('Downloading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           if (needsDownload) {
@@ -358,7 +385,7 @@ async function stop() {
     return false
   }
 
-  warn('identity-archiver: Stopping %s', pkg.name)
+  warn('Stopping')
   channel.destroy(onclose)
   return true
 
