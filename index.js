@@ -22,6 +22,8 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
+const UPDATE_INTERVAL = 2 * 60 * 1000
+
 const conf = {
   network: null,
   identity: null,
@@ -180,10 +182,12 @@ async function start(argv) {
     }
   })
 
-  info('discovery key:', discoveryKey.toString('hex'))
   resolvers.setMaxListeners(Infinity)
   resolvers.on('error', onerror)
   resolvers.on('peer', onpeer)
+  setInterval(() => resolvers.update(), UPDATE_INTERVAL)
+
+  info('discovery key:', discoveryKey.toString('hex'))
 
   try {
     await pify(fs.access)(rc.network.identity.archive.nodes.store)
@@ -370,6 +374,13 @@ async function start(argv) {
           error(err.message)
           warn('Failed to sync archive for AID: "did:ara:%s"', key.toString('hex'))
           return false
+        }
+
+        try {
+          resolvers.update()
+        } catch (err) {
+          debug(err.stack || err)
+          error(err.message)
         }
 
         return true
