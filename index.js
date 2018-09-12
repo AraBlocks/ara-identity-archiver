@@ -21,7 +21,7 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
-const UPDATE_INTERVAL = 2 * 60 * 1000
+// const UPDATE_INTERVAL = 2 * 60 * 1000
 
 const conf = {
   network: null,
