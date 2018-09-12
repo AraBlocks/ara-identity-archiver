@@ -166,9 +166,9 @@ async function start(argv) {
   const { createCFS } = require('cfsnet/create')
 
   resolvers = createSwarm({
+    utp: false,
     stream(peer) {
-      const { port } = resolvers.address()
-      if (peer && peer.channel && port !== peer.port) {
+      if (peer && peer.channel) {
         for (const cfs of drives.list()) {
           if (0 === Buffer.compare(cfs.discoveryKey, peer.channel)) {
             return cfs.replicate({ live: false })
