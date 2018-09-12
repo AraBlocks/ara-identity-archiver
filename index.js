@@ -185,7 +185,7 @@ async function start(argv) {
   resolvers.setMaxListeners(Infinity)
   resolvers.on('error', onerror)
   resolvers.on('peer', onpeer)
-  setInterval(() => resolvers.update(), UPDATE_INTERVAL)
+  setInterval(() => resolvers._discovery.update(), UPDATE_INTERVAL)
 
   info('discovery key:', discoveryKey.toString('hex'))
 
@@ -377,7 +377,7 @@ async function start(argv) {
         }
 
         try {
-          resolvers.update()
+          resolvers._discovery.update()
         } catch (err) {
           debug(err.stack || err)
           error(err.message)
