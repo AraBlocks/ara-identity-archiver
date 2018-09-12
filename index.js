@@ -346,9 +346,11 @@ async function start(argv) {
         }
 
         try {
+          info('Reading %s directory', cfs.HOME)
           const files = await cfs.readdir(cfs.HOME)
 
           // wait for all files to download
+          info('Waiting for %d files to download', files.length)
           await Promise.all(files.map(file => cfs.download(file)))
 
           info(
