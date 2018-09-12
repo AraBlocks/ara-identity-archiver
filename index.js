@@ -345,26 +345,24 @@ async function start(argv) {
           await new Promise(done => cfs.once('update', done))
         }
 
-        const { _latestVersion, _latestSynced } = cfs.partitions.home
-        if (_latestSynced !== _latestVersion) {
-          await new Promise((done) => {
-            cfs.once('sync', () => {
-              info('Did sync archive: key=%s', key.toString('hex'))
-              done()
-            })
-          })
-        }
-
         try {
-          info('Reading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           const files = await cfs.readdir(cfs.HOME)
 
-          info('Did sync files: key=%s', key.toString('hex'), files)
-          info('Finished archiving AID: "did:ara:%s"', key.toString('hex'))
+          // wait for all files to download
+          await Promise.all(files.map(file => cfs.download(file)))
+
+          info(
+            'Did sync identity archive for: "did:ara:%s"',
+            key.toString('hex'),
+            files
+          )
         } catch (err) {
           debug(err.stack || err)
           error(err.message)
-          warn('Failed to sync archive for AID: "did:ara:%s"', key.toString('hex'))
+          warn(
+            'Failed to sync identity archive for: "did:ara:%s"',
+            key.toString('hex')
+          )
           return false
         }
 
