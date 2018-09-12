@@ -168,9 +168,8 @@ async function start(argv) {
   const { createCFS } = require('cfsnet/create')
 
   resolvers = createSwarm({
-    utp: false,
     stream(peer) {
-      if (peer && peer.channel) {
+      if (peer && peer.channel && peer.id !== resolvers.id) {
         for (const cfs of drives.list()) {
           if (0 === Buffer.compare(cfs.discoveryKey, peer.channel)) {
             return cfs.replicate({ live: false })
@@ -320,7 +319,7 @@ async function start(argv) {
       reader.on('data', async (data) => {
         const id = data.slice(64)
         const key = data.slice(0, 32)
-        const result = await oncreate(id, key)
+        const result = await archive(id, key)
         const writer = handshake.createWriteStream()
 
         if (result) {
@@ -333,12 +332,13 @@ async function start(argv) {
         socket.destroy()
       })
 
-      async function oncreate(id, key) {
-        let needsDownload = false
+      async function archive(id, key) {
+        // let needsDownload = false
 
         const cfs = await pify(drives.create)({
           id: id.toString('hex'),
           key: key.toString('hex'),
+          latest: true,
         })
 
         info('Got archive: key=%s', key.toString('hex'))
@@ -347,6 +347,7 @@ async function start(argv) {
           info('Did sync archive: key=%s', key.toString('hex'))
         })
 
+        /**
         try {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           await cfs.access('.')
@@ -355,14 +356,17 @@ async function start(argv) {
           info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
           await new Promise(done => cfs.once('update', done))
         }
+        */
 
         try {
+          /**
           info('Downloading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           if (needsDownload) {
             await cfs.download('.')
           } else {
             cfs.download('.')
           }
+          */
 
           info('Reading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           const files = await cfs.readdir('.')
