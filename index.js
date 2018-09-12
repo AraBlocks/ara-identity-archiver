@@ -204,7 +204,13 @@ async function start(argv) {
     const key = Buffer.from(opts.key, 'hex')
 
     try {
-      const config = Object.assign({}, opts, { id, key, shallow: true })
+      const config = Object.assign({}, opts, {
+        shallow: true,
+        latest: true,
+        key,
+        id,
+      })
+
       cfs = await createCFS(config)
       done(null, cfs)
     } catch (err) {
@@ -331,16 +337,22 @@ async function start(argv) {
 
         info('Got archive: key=%s', key.toString('hex'))
 
-        cfs.once('sync', () => {
-          info('Did sync archive: key=%s', key.toString('hex'))
-        })
-
         try {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           await cfs.access(cfs.HOME)
         } catch (err) {
           info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
           await new Promise(done => cfs.once('update', done))
+        }
+
+        const { _latestVersion, _latestSynced } = cfs.partitions.home
+        if (_latestSynced !== _latestVersion) {
+          await new Promise((done) => {
+            cfs.once('sync', () => {
+              info('Did sync archive: key=%s', key.toString('hex'))
+              done()
+            })
+          })
         }
 
         try {
