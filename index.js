@@ -171,7 +171,7 @@ async function start(argv) {
 
   try {
     await pify(fs.access)(rc.network.identity.archive.nodes.store)
-    const stat = pify(fs.stat)(rc.network.identity.archive.nodes.store)
+    const stat = await pify(fs.stat)(rc.network.identity.archive.nodes.store)
     if (stat.isFile()) {
       // eslint-disable-next-line function-paren-newline
       throw new TypeError(
