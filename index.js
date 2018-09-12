@@ -8,7 +8,6 @@ const { resolve } = require('path')
 const multidrive = require('multidrive')
 const coalesce = require('defined')
 const inquirer = require('inquirer')
-const through = require('through2')
 const { DID } = require('did-uri')
 const crypto = require('ara-crypto')
 const toilet = require('toiletdb')
@@ -36,7 +35,8 @@ const conf = {
   },
 }
 
-let resolvers = null
+const resolvers = {}
+
 let channel = null
 
 async function getInstance() {
@@ -167,25 +167,6 @@ async function start(argv) {
   // eslint-disable-next-line global-require
   const { createCFS } = require('cfsnet/create')
 
-  resolvers = createSwarm({
-    stream(peer) {
-      if (peer && peer.channel && peer.id !== resolvers.id) {
-        for (const cfs of drives.list()) {
-          if (0 === Buffer.compare(cfs.discoveryKey, peer.channel)) {
-            return cfs.replicate({ live: false })
-          }
-        }
-      }
-
-      return through()
-    }
-  })
-
-  resolvers.setMaxListeners(Infinity)
-  resolvers.on('error', onerror)
-  resolvers.on('peer', onpeer)
-  setInterval(() => resolvers._discovery.update(), UPDATE_INTERVAL)
-
   info('discovery key:', discoveryKey.toString('hex'))
 
   try {
@@ -215,35 +196,50 @@ async function start(argv) {
   // we map discovery keys to cfs configuration used at boot up or when
   // a peer requests to be archived
   const store = toilet(nodeStore)
-  const drives = await pify(multidrive)(
-    store,
+  const drives = await pify(multidrive)(store, oncreatecfs, onclosefs)
 
-    // create hook
-    async (opts, done) => {
-      const id = Buffer.from(opts.id, 'hex').toString('hex')
-      const key = Buffer.from(opts.key, 'hex')
-      try {
-        const config = Object.assign({}, opts, { id, key, shallow: true })
-        const cfs = await createCFS(config)
+  async function oncreatecfs(opts, done) {
+    const id = Buffer.from(opts.id, 'hex').toString('hex')
+    const key = Buffer.from(opts.key, 'hex')
 
-        setTimeout(() => {
-          info('join:', cfs.discoveryKey.toString('hex'))
-          resolvers.join(cfs.discoveryKey, { announce: true })
-        }, 1000)
+    try {
+      const config = Object.assign({}, opts, { id, key, shallow: true })
+      const cfs = await createCFS(config)
 
-        return done(null, cfs)
-      } catch (err) {
-        done(err)
+      if (!resolvers[opts.id]) {
+        const resolver = createSwarm({
+          stream() {
+            return cfs.replicate({ live: false })
+          }
+        })
+
+        resolvers[opts.id] = resolver
+
+        resolver.setMaxListeners(Infinity)
+        resolver.on('error', onerror)
+        resolver.on('peer', onpeer)
+        setInterval(() => resolver._discovery.update(), UPDATE_INTERVAL)
       }
-      return null
-    },
 
-    // close hook
-    async (cfs, done) => {
-      try { await cfs.close() } catch (err) { return done(err) }
-      return done(null)
+      setTimeout(() => {
+        info('join:', cfs.discoveryKey.toString('hex'))
+        resolvers.join(cfs.discoveryKey, { announce: true })
+      }, 1000)
+
+      done(null, cfs)
+    } catch (err) {
+      done(err)
     }
-  )
+  }
+
+  async function onclosefs(cfs, done) {
+    try {
+      await cfs.close()
+      done(null)
+    } catch (err) {
+      done(err)
+    }
+  }
 
   function onlisten(err) {
     if (err) { throw err }
@@ -252,12 +248,8 @@ async function start(argv) {
   }
 
   function onerror(err) {
-    if (err && 'EADDRINUSE' === err.code) {
-      channel.listen(0)
-    } else {
-      debug(err.stack || err)
-      warn('error:', err.message)
-    }
+    debug(err.stack || err)
+    warn('error:', err.message)
   }
 
   function onpeer(peer) {
@@ -333,8 +325,6 @@ async function start(argv) {
       })
 
       async function archive(id, key) {
-        let needsDownload = false
-
         const cfs = await pify(drives.create)({
           id: id.toString('hex'),
           key: key.toString('hex'),
@@ -351,21 +341,11 @@ async function start(argv) {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           await cfs.access(cfs.HOME)
         } catch (err) {
-          needsDownload = true
           info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
           await new Promise(done => cfs.once('update', done))
         }
 
         try {
-          /**
-          info('Downloading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
-          if (needsDownload) {
-            await cfs.download('.')
-          } else {
-            cfs.download('.')
-          }
-          */
-
           info('Reading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
           const files = await cfs.readdir(cfs.HOME)
 
@@ -376,13 +356,6 @@ async function start(argv) {
           error(err.message)
           warn('Failed to sync archive for AID: "did:ara:%s"', key.toString('hex'))
           return false
-        }
-
-        try {
-          resolvers._discovery.update()
-        } catch (err) {
-          debug(err.stack || err)
-          error(err.message)
         }
 
         return true
