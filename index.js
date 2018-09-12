@@ -350,9 +350,9 @@ async function start(argv) {
           const files = (await cfs.readdir(cfs.HOME)).map(async (file) => {
             try {
               await cfs.access(file)
-              return file
-            } catch (err) {
               return null
+            } catch (err) {
+              return file
             }
           })
 
