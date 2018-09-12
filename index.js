@@ -333,7 +333,7 @@ async function start(argv) {
       })
 
       async function archive(id, key) {
-        // let needsDownload = false
+        let needsDownload = false
 
         const cfs = await pify(drives.create)({
           id: id.toString('hex'),
@@ -347,16 +347,14 @@ async function start(argv) {
           info('Did sync archive: key=%s', key.toString('hex'))
         })
 
-        /**
         try {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
-          await cfs.access('.')
+          await cfs.access(cfs.HOME)
         } catch (err) {
           needsDownload = true
           info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
           await new Promise(done => cfs.once('update', done))
         }
-        */
 
         try {
           /**
@@ -369,7 +367,7 @@ async function start(argv) {
           */
 
           info('Reading %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
-          const files = await cfs.readdir('.')
+          const files = await cfs.readdir(cfs.HOME)
 
           info('Did sync files: key=%s', key.toString('hex'), files)
           info('Finished archiving AID: "did:ara:%s"', key.toString('hex'))
