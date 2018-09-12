@@ -199,40 +199,35 @@ async function start(argv) {
   const drives = await pify(multidrive)(store, oncreatecfs, onclosefs)
 
   async function oncreatecfs(opts, done) {
+    let cfs = null
     const id = Buffer.from(opts.id, 'hex').toString('hex')
     const key = Buffer.from(opts.key, 'hex')
 
     try {
       const config = Object.assign({}, opts, { id, key, shallow: true })
-      const cfs = await createCFS(config)
-
-      if (!resolvers[opts.id]) {
-        const resolver = createSwarm({
-          stream() {
-            return cfs.replicate({ live: false })
-          }
-        })
-
-        resolvers[opts.id] = resolver
-
-        resolver.setMaxListeners(Infinity)
-        resolver.on('error', onerror)
-        resolver.on('peer', onpeer)
-
-        setInterval(() => resolver._discovery.update(), UPDATE_INTERVAL)
-      }
-
-      setTimeout(() => {
-        const resolver = resolvers[opts.id]
-        if (resolver) {
-          info('join:', cfs.discoveryKey.toString('hex'))
-          resolver.join(cfs.discoveryKey, { announce: true })
-        }
-      }, 1000)
-
+      cfs = await createCFS(config)
       done(null, cfs)
     } catch (err) {
+      debug(err)
       done(err)
+    }
+
+    if (cfs && !resolvers[opts.id]) {
+      const resolver = createSwarm({
+        stream() {
+          return cfs.replicate({ live: false })
+        }
+      })
+
+      resolvers[opts.id] = resolver
+
+      resolver.setMaxListeners(Infinity)
+      resolver.on('error', onerror)
+      resolver.on('peer', onpeer)
+      setTimeout(() => {
+        info('join:', cfs.discoveryKey.toString('hex'))
+        resolver.join(cfs.discoveryKey, { announce: true })
+      }, 1000)
     }
   }
 
@@ -331,8 +326,7 @@ async function start(argv) {
       async function archive(id, key) {
         const cfs = await pify(drives.create)({
           id: id.toString('hex'),
-          key: key.toString('hex'),
-          latest: true,
+          key: key.toString('hex')
         })
 
         info('Got archive: key=%s', key.toString('hex'))
