@@ -218,12 +218,16 @@ async function start(argv) {
         resolver.setMaxListeners(Infinity)
         resolver.on('error', onerror)
         resolver.on('peer', onpeer)
+
         setInterval(() => resolver._discovery.update(), UPDATE_INTERVAL)
       }
 
       setTimeout(() => {
-        info('join:', cfs.discoveryKey.toString('hex'))
-        resolvers.join(cfs.discoveryKey, { announce: true })
+        const resolver = resolvers[opts.id]
+        if (resolver) {
+          info('join:', cfs.discoveryKey.toString('hex'))
+          resolver.join(cfs.discoveryKey, { announce: true })
+        }
       }, 1000)
 
       done(null, cfs)
