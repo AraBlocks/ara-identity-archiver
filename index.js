@@ -350,22 +350,27 @@ async function start(argv) {
           const files = (await cfs.readdir(cfs.HOME)).map(async (file) => {
             try {
               await cfs.access(file)
-              return true
+              return file
             } catch (err) {
-              return false
+              return null
             }
           })
 
-          const pending = files.filter(Boolean)
+          const pending = (await Promise.all(files)).filter(Boolean)
 
           // wait for all files to download
-          info('Waiting for %d/%d files to download', pending.length / files.length)
+          info(
+            'Waiting for %d/%d files to download',
+            pending.length,
+            files.length
+          )
+
           await Promise.all(pending.map(file => cfs.download(file)))
 
           info(
             'Did sync identity archive for: "did:ara:%s"',
             key.toString('hex'),
-            files
+            pending
           )
         } catch (err) {
           debug(err.stack || err)
