@@ -365,7 +365,7 @@ async function start(argv) {
             files.length
           )
 
-          await Promise.all(pending.map(file => cfs.download(file)))
+          await Promise.all(files.map(file => cfs.download(file)))
 
           info(
             'Did sync identity archive for: "did:ara:%s"',
