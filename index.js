@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 const { unpack, keyRing, derive } = require('ara-network/keys')
 const { info, warn, error } = require('ara-console')('identity-archiver')
 const { createChannel } = require('ara-network/discovery/channel')
@@ -12,6 +13,7 @@ const { DID } = require('did-uri')
 const crypto = require('ara-crypto')
 const toilet = require('toiletdb')
 const mkdirp = require('mkdirp')
+const rimraf = require('rimraf')
 const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
 const pump = require('pump')
@@ -198,6 +200,37 @@ async function start(argv) {
   const store = toilet(nodeStore)
   const drives = await pify(multidrive)(store, oncreatecfs, onclosefs)
 
+  const entries = drives.list()
+  for (const drive of entries) {
+    try {
+      await pify(fs.access)(resolve(
+        drive.partitions.home.storage,
+        'content',
+        'data'
+      ))
+    } catch (err) {
+      debug(err)
+      warn(
+        'Corrupt or invalid identity archive. Removing',
+        drive.key.toString('hex')
+      )
+
+      try {
+        await pify(drives.close)(drive.key)
+        await pify(rimraf)(resolve(
+          drive.partitions.home.storage,
+          '..'
+        ))
+      } catch (err0) {
+        debug(err0)
+        // eslint-disable-next-line function-paren-newline
+        throw new Error(
+          `Failed to remove ${drive.key.toString('hex').slice}. ` +
+          'Please remove manually before running.')
+      }
+    }
+  }
+
   async function oncreatecfs(opts, done) {
     let cfs = null
     const id = Buffer.from(opts.id, 'hex').toString('hex')
@@ -212,13 +245,13 @@ async function start(argv) {
       })
 
       cfs = await createCFS(config)
-      done(null, cfs)
     } catch (err) {
       debug(err)
       done(err)
+      return
     }
 
-    if (cfs && !resolvers[opts.id]) {
+    if (!resolvers[opts.id]) {
       const resolver = createSwarm({
         stream() {
           return cfs.replicate({ live: false })
@@ -227,19 +260,25 @@ async function start(argv) {
 
       resolvers[opts.id] = resolver
 
+      resolver.join(cfs.discoveryKey, { announce: true })
       resolver.setMaxListeners(Infinity)
       resolver.on('error', onerror)
       resolver.on('peer', onpeer)
-      setTimeout(() => {
-        info('join:', cfs.discoveryKey.toString('hex'))
-        resolver.join(cfs.discoveryKey, { announce: true })
-      }, 1000)
+
+      info('join:', cfs.discoveryKey.toString('hex'))
     }
+
+    done(null, cfs)
   }
 
   async function onclosefs(cfs, done) {
     try {
       await cfs.close()
+      const resolver = resolvers[cfs.identifier.toString('hex')]
+      if (resolver) {
+        resolver.destroy()
+        delete resolvers[cfs.identifier.toString('hex')]
+      }
       done(null)
     } catch (err) {
       done(err)
