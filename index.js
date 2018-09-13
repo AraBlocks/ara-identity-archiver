@@ -266,7 +266,7 @@ async function start(argv) {
 
       resolvers[opts.id] = resolver
 
-      resolver.join(cfs.discoveryKey, { announce: true })
+      resolver.join(cfs.discoveryKey)
       resolver.setMaxListeners(Infinity)
       resolver.on('error', onerror)
       resolver.on('peer', onpeer)
@@ -375,6 +375,7 @@ async function start(argv) {
       })
 
       async function archive(id, key) {
+        const pending = []
         const cfs = await pify(drives.create)({
           id: id.toString('hex'),
           key: key.toString('hex')
@@ -390,18 +391,32 @@ async function start(argv) {
           await new Promise(done => cfs.once('update', done))
         }
 
+        async function visit(dir) {
+          const files = await cfs.readdir(dir)
+          for (const file of files) {
+            const filename = resolve(dir, file)
+            const stat = await cfs.stat(filename)
+            if (stat && stat.isFile()) {
+              pending.push(filename)
+            } else if (stat && stat.isDirectory()) {
+              visit(filename)
+            }
+          }
+        }
+
         try {
           info('Reading %s directory', cfs.HOME)
-          const files = await cfs.readdir(cfs.HOME)
+
+          await visit(cfs.HOME)
 
           // wait for all files to download
-          info('Waiting for %d files to download', files.length)
-          void (await Promise.all(files)).map(file => cfs.download(file))
+          info('Waiting for %d files to download', pending.length)
+          await Promise.all(pending.map(filename => cfs.readFile(filename)))
 
           info(
             'Did sync identity archive for: "did:ara:%s"',
             key.toString('hex'),
-            files
+            pending
           )
         } catch (err) {
           debug(err.stack || err)
