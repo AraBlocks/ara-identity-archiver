@@ -237,6 +237,7 @@ async function start(argv) {
 
   async function oncreatecfs(opts, done) {
     let cfs = null
+    let duplicate = true
     const id = Buffer.from(opts.id, 'hex').toString('hex')
     const key = Buffer.from(opts.key, 'hex')
 
@@ -248,7 +249,6 @@ async function start(argv) {
         id,
       })
 
-      await destroyCFS({ id, key })
       cfs = await createCFS(config)
     } catch (err) {
       debug(err)
@@ -257,6 +257,7 @@ async function start(argv) {
     }
 
     if (!resolvers[opts.id]) {
+      duplicate = false
       const resolver = createSwarm({
         stream() {
           return cfs.replicate({ live: false })
@@ -273,7 +274,7 @@ async function start(argv) {
       info('join:', cfs.discoveryKey.toString('hex'))
     }
 
-    done(null, cfs)
+    done(null, cfs, duplicate)
   }
 
   async function onclosefs(cfs, done) {
