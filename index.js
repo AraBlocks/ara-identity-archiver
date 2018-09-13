@@ -3,6 +3,8 @@ const { unpack, keyRing, derive } = require('ara-network/keys')
 const { info, warn, error } = require('ara-console')('identity-archiver')
 const { createChannel } = require('ara-network/discovery/channel')
 const { createSwarm } = require('ara-network/discovery')
+const { destroyCFS } = require('cfsnet/destroy')
+const { createCFS } = require('cfsnet/create')
 const { Handshake } = require('ara-network/handshake')
 const { readFile } = require('fs')
 const { resolve } = require('path')
@@ -109,6 +111,10 @@ prompted for the associated passphrase`,
     warn('Please use \'--network\' instead of \'--name\'.')
   }
 
+  // overload CFS roof directory to be the archive root directory
+  // and then require `createCFS` after this has been overloaded
+  process.env.CFS_ROOT_DIR = resolve(rc.network.identity.archive.root)
+
   return conf
 
   function select(k, ...args) {
@@ -161,13 +167,7 @@ async function start(argv) {
   const server = net.createServer(onconnection)
   server.listen(conf.port, onlisten)
 
-  // overload CFS roof directory to be the archive root directory
-  // and then require `createCFS` after this has been overloaded
-  process.env.CFS_ROOT_DIR = resolve(rc.network.identity.archive.root)
   await pify(mkdirp)(process.env.CFS_ROOT_DIR)
-
-  // eslint-disable-next-line global-require
-  const { createCFS } = require('cfsnet/create')
 
   info('discovery key:', discoveryKey.toString('hex'))
 
@@ -202,6 +202,10 @@ async function start(argv) {
 
   const entries = drives.list()
   for (const drive of entries) {
+    if (drive instanceof Error) {
+      throw drive
+    }
+
     try {
       await pify(fs.access)(resolve(
         drive.partitions.home.storage,
@@ -244,6 +248,7 @@ async function start(argv) {
         id,
       })
 
+      await destroyCFS({ id, key })
       cfs = await createCFS(config)
     } catch (err) {
       debug(err)
@@ -273,7 +278,7 @@ async function start(argv) {
 
   async function onclosefs(cfs, done) {
     try {
-      await cfs.close()
+      await destroyCFS({ cfs })
       const resolver = resolvers[cfs.identifier.toString('hex')]
       if (resolver) {
         resolver.destroy()
@@ -297,7 +302,7 @@ async function start(argv) {
   }
 
   function onpeer(peer) {
-    info('Got peer:', peer.id)
+    debug('Got peer:', peer.id)
   }
 
   function onconnection(socket) {
@@ -398,13 +403,8 @@ async function start(argv) {
           const pending = (await Promise.all(files)).filter(Boolean)
 
           // wait for all files to download
-          info(
-            'Waiting for %d/%d files to download',
-            pending.length,
-            files.length
-          )
-
-          void (await Promise.all(files)).map(file => cfs.download(file))
+          info('Waiting for %d files to download', files.length)
+          void await new Promise(done => cfs.on('sync', done))
 
           info(
             'Did sync identity archive for: "did:ara:%s"',
