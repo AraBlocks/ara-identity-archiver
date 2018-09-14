@@ -237,33 +237,31 @@ async function start(argv) {
 
   setInterval(onrecycle, RECYCLE_INTERVAL)
 
-  function destroyResolver(id) {
+  function destroyResolver(id, done) {
     if (resolvers[id]) {
-      resolvers[id].destroy()
+      resolvers[id].destroy(done)
       delete resolvers[id]
+    } else {
+      done(null)
     }
   }
 
   function createResolver(id, cfs) {
-    if (resolvers[id]) {
-      destroyResolver(id)
-    }
+    destroyResolver(id, () => {
+      const resolver = createSwarm({
+        stream: () => cfs.replicate({ live: false })
+      })
 
-    const resolver = createSwarm({
-      stream() {
-        return cfs.replicate({ live: false })
-      }
+      resolvers[id] = resolver
+
+      resolver.cfs = cfs
+      resolver.setMaxListeners(Infinity)
+      resolver.on('error', onerror)
+      resolver.on('peer', onpeer)
+
+      process.nextTick(() => resolver.join(cfs.discoveryKey))
+      process.nextTick(() => info('join:', cfs.discoveryKey.toString('hex')))
     })
-
-    resolvers[id] = resolver
-
-    resolver.cfs = cfs
-    resolver.setMaxListeners(Infinity)
-    resolver.on('error', onerror)
-    resolver.on('peer', onpeer)
-
-    process.nextTick(() => resolver.join(cfs.discoveryKey))
-    process.nextTick(() => info('join:', cfs.discoveryKey.toString('hex')))
   }
 
   async function onrecycle() {
