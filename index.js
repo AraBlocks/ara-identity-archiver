@@ -25,7 +25,7 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
-// const UPDATE_INTERVAL = 2 * 60 * 1000
+const RECYCLE_INTERVAL = 2 * 60 * 1000
 
 const conf = {
   network: null,
@@ -235,6 +235,45 @@ async function start(argv) {
     }
   }
 
+  setInterval(onrecycle, RECYCLE_INTERVAL)
+
+  function destroyResolver(id) {
+    if (resolvers[id]) {
+      resolvers[id].destroy()
+      delete resolvers[id]
+    }
+  }
+
+  function createResolver(id, cfs) {
+    if (resolvers[id]) {
+      destroyResolver(id)
+    }
+
+    const resolver = createSwarm({
+      stream() {
+        return cfs.replicate({ live: false })
+      }
+    })
+
+    resolvers[id] = resolver
+
+    resolver.cfs = cfs
+    resolver.setMaxListeners(Infinity)
+    resolver.on('error', onerror)
+    resolver.on('peer', onpeer)
+
+    process.nextTick(() => resolver.join(cfs.discoveryKey))
+    process.nextTick(() => info('join:', cfs.discoveryKey.toString('hex')))
+  }
+
+  async function onrecycle() {
+    for (const k in resolvers) {
+      warn('recycle:', k)
+      const { cfs } = resolvers[k]
+      createResolver(k, cfs)
+    }
+  }
+
   async function oncreatecfs(opts, done) {
     let cfs = null
     let duplicate = true
@@ -258,20 +297,7 @@ async function start(argv) {
 
     if (!resolvers[opts.id]) {
       duplicate = false
-      const resolver = createSwarm({
-        stream() {
-          return cfs.replicate({ live: false })
-        }
-      })
-
-      resolvers[opts.id] = resolver
-
-      resolver.join(cfs.discoveryKey)
-      resolver.setMaxListeners(Infinity)
-      resolver.on('error', onerror)
-      resolver.on('peer', onpeer)
-
-      info('join:', cfs.discoveryKey.toString('hex'))
+      createResolver(opts.id, cfs)
     }
 
     done(null, cfs, duplicate)
