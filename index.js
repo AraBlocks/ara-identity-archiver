@@ -268,7 +268,8 @@ async function start(argv) {
     for (const k in resolvers) {
       warn('recycle:', k)
       const { cfs } = resolvers[k]
-      createResolver(k, cfs)
+      process.nextTick(() => resolvers[k].join(cfs.discoveryKey))
+      process.nextTick(() => info('rejoin:', cfs.discoveryKey.toString('hex')))
     }
   }
 
