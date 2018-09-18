@@ -25,8 +25,6 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
-const ANNOUNCE_INTERVAL = 2 * 60 * 1000
-
 const conf = {
   network: null,
   identity: null,
@@ -38,8 +36,6 @@ const conf = {
     loopback: true
   },
 }
-
-const resolvers = {}
 
 let channel = null
 
@@ -187,6 +183,33 @@ async function start(argv) {
   // ensure the node store root directory exists
   await pify(mkdirp)(rc.network.identity.archive.nodes.store)
 
+  const gateway = createSwarm({ })
+
+  gateway.on('error', onerror)
+  gateway.on('peer', onpeer)
+  gateway.on('connection', (connection, peer) => {
+    if (drives && peer && peer.channel) {
+      for (const cfs of drives.list()) {
+        if (cfs && cfs.discoveryKey) {
+          if (0 === Buffer.compare(peer.channel, cfs.discoveryKey)) {
+            const stream = cfs.replicate({ live: false })
+
+            info('gateway lookup: %s', cfs.key.toString('hex'))
+            return pump(connection, stream, connection, (err) => {
+              if (err) {
+                onerror(err)
+              } else {
+                info('gateway connection: %s', cfs.discoveryKey.toString('hex'))
+              }
+            })
+          }
+        }
+      }
+    }
+
+    return connection.end()
+  })
+
   // create a path to store nodes for this archiver based on the identity
   // of this archiver
   const nodeStore = resolve(
@@ -197,94 +220,59 @@ async function start(argv) {
   // open a toiletdb instance to the node store for this archiver where
   // we map discovery keys to cfs configuration used at boot up or when
   // a peer requests to be archived
+  let drives = null
   const store = toilet(nodeStore)
-  const drives = await pify(multidrive)(store, oncreatecfs, onclosefs)
 
-  const entries = drives.list()
-  for (const drive of entries) {
-    if (drive instanceof Error) {
-      throw drive
+  drives = await pify(multidrive)(store, oncreatecfs, onclosefs)
+
+  for (const cfs of drives.list()) {
+    if (cfs instanceof Error) {
+      throw cfs
     }
 
     try {
       await pify(fs.access)(resolve(
-        drive.partitions.home.storage,
+        cfs.partitions.home.storage,
         'content',
         'data'
       ))
+
+      await join(cfs)
     } catch (err) {
       debug(err)
       warn(
         'Corrupt or invalid identity archive. Removing',
-        drive.key.toString('hex')
+        cfs.key.toString('hex')
       )
 
       try {
-        await pify(drives.close)(drive.key)
+        await pify(drives.close)(cfs.key)
         await pify(rimraf)(resolve(
-          drive.partitions.home.storage,
+          cfs.partitions.home.storage,
           '..'
         ))
       } catch (err0) {
         debug(err0)
         // eslint-disable-next-line function-paren-newline
         throw new Error(
-          `Failed to remove ${drive.key.toString('hex').slice}. ` +
+          `Failed to remove ${cfs.key.toString('hex').slice}. ` +
           'Please remove manually before running.')
       }
     }
   }
 
-  setInterval(onannounce, ANNOUNCE_INTERVAL)
-
-  function destroyResolver(id, done) {
-    if (resolvers[id]) {
-      warn('Destroying resolver for %s', id.slice(0, 8))
-      resolvers[id].destroy(done)
-      delete resolvers[id]
-    } else {
-      done(null)
-    }
-  }
-
-  function createResolver(id, cfs) {
-    const resolver = createSwarm({
-      stream(peer) {
-        debug(
-          'resolver: stream: %s:%s@%s',
-          peer && peer.host ? peer.host : null,
-          peer && peer.port ? peer.port : null,
-          peer && peer.channel ? peer.channel.toString('hex') : null
-        )
-
-        return cfs.replicate({ live: false })
-      }
-    })
-
-    resolvers[id] = resolver
-
-    resolver.cfs = cfs
-    resolver.setMaxListeners(Infinity)
-    resolver.on('error', onerror)
-    resolver.on('peer', onpeer)
-    resolver.join(cfs.discoveryKey)
-
-    process.nextTick(() => info(
-      'join:',
-      cfs.key.toString('hex'),
-      cfs.discoveryKey.toString('hex')
-    ))
-  }
-
-  async function onannounce() {
-    for (const k in resolvers) {
-      const { cfs } = resolvers[k]
+  async function join(cfs) {
+    return pify((done) => {
       process.nextTick(() => {
-        warn('announce:', cfs.key.toString('hex'))
-        warn('announce: (discovery)', cfs.discoveryKey.toString('hex'))
-        resolvers[k].join(cfs.discoveryKey, { announce: true })
+        gateway.join(cfs.discoveryKey, { announce: true })
+        process.nextTick(done, null)
+        info(
+          'join: %s...@%s',
+          cfs.key.slice(0, 8).toString('hex'),
+          cfs.discoveryKey.toString('hex')
+        )
       })
-    }
+    })()
   }
 
   async function oncreatecfs(opts, done) {
@@ -307,17 +295,22 @@ async function start(argv) {
       return
     }
 
-    if (!resolvers[opts.id]) {
-      createResolver(opts.id, cfs)
-    }
-
     done(null, cfs)
   }
 
   async function onclosefs(cfs, done) {
     try {
       await destroyCFS({ cfs })
-      destroyResolver(cfs.identifier.toString('hex'), done)
+
+      if (gateway) {
+        try {
+          gateway.leave(cfs.discoveryKey)
+        } catch (err) {
+          void err
+        }
+      }
+
+      done(null)
     } catch (err) {
       done(err)
     }
@@ -413,6 +406,8 @@ async function start(argv) {
           key: key.toString('hex')
         })
 
+        await join(cfs)
+
         info('Got archive: key=%s', key.toString('hex'))
 
         try {
@@ -420,7 +415,10 @@ async function start(argv) {
           await cfs.access(cfs.HOME)
         } catch (err) {
           info('Waiting for update for "did:ara:%s"', cfs.key.toString('hex'))
-          await new Promise(done => cfs.once('update', done))
+          await Promise.race([
+            new Promise(done => cfs.once('sync', done)),
+            new Promise(done => cfs.once('update', done)),
+          ])
         }
 
         async function visit(dir) {
@@ -457,6 +455,7 @@ async function start(argv) {
             'Failed to sync identity archive for: "did:ara:%s"',
             key.toString('hex')
           )
+
           return false
         }
 
