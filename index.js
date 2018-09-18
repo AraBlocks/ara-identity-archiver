@@ -25,7 +25,7 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
-const RECYCLE_INTERVAL = 2 * 60 * 1000
+const ANNOUNCE_INTERVAL = 2 * 60 * 1000
 
 const conf = {
   network: null,
@@ -235,10 +235,11 @@ async function start(argv) {
     }
   }
 
-  setInterval(onrecycle, RECYCLE_INTERVAL)
+  setInterval(onannounce, ANNOUNCE_INTERVAL)
 
   function destroyResolver(id, done) {
     if (resolvers[id]) {
+      warn('Destroying resolver for %s', id.slice(0, 8))
       resolvers[id].destroy(done)
       delete resolvers[id]
     } else {
@@ -247,35 +248,47 @@ async function start(argv) {
   }
 
   function createResolver(id, cfs) {
-    destroyResolver(id, () => {
-      const resolver = createSwarm({
-        stream: () => cfs.replicate({ live: false })
-      })
+    const resolver = createSwarm({
+      stream(peer) {
+        debug(
+          'resolver: stream: %s:%s@%s',
+          peer && peer.host ? peer.host : null,
+          peer && peer.port ? peer.port : null,
+          peer && peer.channel ? peer.channel.toString('hex') : null
+        )
 
-      resolvers[id] = resolver
-
-      resolver.cfs = cfs
-      resolver.setMaxListeners(Infinity)
-      resolver.on('error', onerror)
-      resolver.on('peer', onpeer)
-
-      process.nextTick(() => resolver.join(cfs.discoveryKey))
-      process.nextTick(() => info('join:', cfs.discoveryKey.toString('hex')))
+        return cfs.replicate({ live: false })
+      }
     })
+
+    resolvers[id] = resolver
+
+    resolver.cfs = cfs
+    resolver.setMaxListeners(Infinity)
+    resolver.on('error', onerror)
+    resolver.on('peer', onpeer)
+    resolver.join(cfs.discoveryKey)
+
+    process.nextTick(() => info(
+      'join:',
+      cfs.key.toString('hex'),
+      cfs.discoveryKey.toString('hex')
+    ))
   }
 
-  async function onrecycle() {
+  async function onannounce() {
     for (const k in resolvers) {
-      warn('recycle:', k)
       const { cfs } = resolvers[k]
-      process.nextTick(() => resolvers[k].join(cfs.discoveryKey))
-      process.nextTick(() => info('rejoin:', cfs.discoveryKey.toString('hex')))
+      process.nextTick(() => {
+        warn('announce:', cfs.key.toString('hex'))
+        warn('announce: (discovery)', cfs.discoveryKey.toString('hex'))
+        resolvers[k].join(cfs.discoveryKey, { announce: true })
+      })
     }
   }
 
   async function oncreatecfs(opts, done) {
     let cfs = null
-    let duplicate = true
     const id = Buffer.from(opts.id, 'hex').toString('hex')
     const key = Buffer.from(opts.key, 'hex')
 
@@ -295,22 +308,16 @@ async function start(argv) {
     }
 
     if (!resolvers[opts.id]) {
-      duplicate = false
       createResolver(opts.id, cfs)
     }
 
-    done(null, cfs, duplicate)
+    done(null, cfs)
   }
 
   async function onclosefs(cfs, done) {
     try {
       await destroyCFS({ cfs })
-      const resolver = resolvers[cfs.identifier.toString('hex')]
-      if (resolver) {
-        resolver.destroy()
-        delete resolvers[cfs.identifier.toString('hex')]
-      }
-      done(null)
+      destroyResolver(cfs.identifier.toString('hex'), done)
     } catch (err) {
       done(err)
     }
