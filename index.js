@@ -189,24 +189,41 @@ async function start(argv) {
   gateway.on('error', onerror)
   gateway.on('peer', onpeer)
   gateway.on('connection', (connection, peer) => {
-    if (drives && peer && peer.channel) {
-      for (const cfs of drives.list()) {
-        if (cfs && cfs.discoveryKey) {
-          if (0 === Buffer.compare(peer.channel, cfs.discoveryKey)) {
-            const stream = cfs.replicate({ live: false })
-            info('gateway lookup: %s', cfs.key.toString('hex'))
-            return pump(connection, stream, connection, (err) => {
-              if (err) {
-                onerror(err)
-              } else {
-                info('gateway connection: %s', cfs.discoveryKey.toString('hex'))
-              }
-            })
+    if (drives && peer) {
+      if (peer.id !== gateway.id && (peer.id || peer.channel)) {
+        for (const cfs of drives.list()) {
+          if (cfs.discoveryKey) {
+            const key = peer.channel || peer.id
+
+            if (0 === Buffer.compare(key, cfs.discoveryKey)) {
+              info('gateway lookup: %s', cfs.key.toString('hex'))
+
+              const stream = cfs.replicate({ live: false })
+              return pump(connection, stream, connection, (err) => {
+                if (err) {
+                  onerror(err)
+                } else {
+                  info(
+                    'gateway connection: %s@%s (%s:%s)',
+                    peer.id && peer.id.toString('hex'),
+                    peer.channel && peer.channel.toString('hex'),
+                    peer.host,
+                    peer.port
+                  )
+                }
+              })
+            }
           }
         }
       }
 
-      warn('gateway skip: %s', peer.channel)
+      warn(
+        'gateway skip: %s@%s (%s:%s)',
+        peer.id && peer.id.toString('hex'),
+        peer.channel && peer.channel.toString('hex'),
+        peer.host,
+        peer.port
+      )
     }
 
     return connection.end()
