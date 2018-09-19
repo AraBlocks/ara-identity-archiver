@@ -1,5 +1,4 @@
-/* eslint-disable no-await-in-loop */
-const { unpack, keyRing, derive } = require('ara-network/keys')
+/* eslint-disable no-await-in-loop */ const { unpack, keyRing, derive } = require('ara-network/keys')
 const { info, warn, error } = require('ara-console')('identity-archiver')
 const { createChannel } = require('ara-network/discovery/channel')
 const { createSwarm } = require('ara-network/discovery')
@@ -36,6 +35,8 @@ const conf = {
     loopback: true
   },
 }
+
+const CFS_UPDATE_TIMEOUT = 5000
 
 let channel = null
 
@@ -193,7 +194,6 @@ async function start(argv) {
         if (cfs && cfs.discoveryKey) {
           if (0 === Buffer.compare(peer.channel, cfs.discoveryKey)) {
             const stream = cfs.replicate({ live: false })
-
             info('gateway lookup: %s', cfs.key.toString('hex'))
             return pump(connection, stream, connection, (err) => {
               if (err) {
@@ -205,6 +205,8 @@ async function start(argv) {
           }
         }
       }
+
+      warn('gateway skip: %s', peer.channel)
     }
 
     return connection.end()
@@ -341,6 +343,8 @@ async function start(argv) {
       domain: { publicKey: unpacked.domain.publicKey }
     })
 
+    let closed = false
+
     handshake.on('hello', onhello)
     handshake.on('error', ondone)
     handshake.on('auth', onauth)
@@ -354,8 +358,11 @@ async function start(argv) {
         warn(err.message)
       }
 
-      handshake.destroy()
-      socket.destroy()
+      if (!closed) {
+        handshake.destroy()
+        socket.destroy()
+        closed = true
+      }
     }
 
     function onhello(hello) {
@@ -387,16 +394,19 @@ async function start(argv) {
         const id = data.slice(64)
         const key = data.slice(0, 32)
         const result = await archive(id, key)
-        const writer = handshake.createWriteStream()
 
-        if (result) {
-          writer.write(Buffer.from('ACK'))
-        } else {
-          writer.write(Buffer.from('ERR'))
+        if (!closed) {
+          const writer = handshake.createWriteStream()
+
+          if (result) {
+            writer.write(Buffer.from('ACK'))
+          } else {
+            writer.write(Buffer.from('ERR'))
+          }
+
+          handshake.destroy()
+          socket.destroy()
         }
-
-        handshake.destroy()
-        socket.destroy()
       })
 
       async function archive(id, key) {
@@ -418,6 +428,7 @@ async function start(argv) {
           await Promise.race([
             new Promise(done => cfs.once('sync', done)),
             new Promise(done => cfs.once('update', done)),
+            new Promise(done => setTimeout(done, CFS_UPDATE_TIMEOUT))
           ])
         }
 
