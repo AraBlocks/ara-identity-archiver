@@ -285,7 +285,6 @@ async function start(argv) {
     try {
       const config = Object.assign({}, opts, {
         shallow: true,
-        latest: true,
         key,
         id,
       })
