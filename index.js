@@ -464,6 +464,8 @@ async function start(argv) {
         try {
           info('Reading %s directory', cfs.HOME)
 
+          await cfs.ready()
+          
           await visit(cfs.HOME)
 
           // wait for all files to download
