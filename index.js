@@ -306,7 +306,6 @@ async function start(argv) {
         id,
       })
 
-      await destroyCFS(config)
       cfs = await createCFS(config)
     } catch (err) {
       debug(err)
