@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 const { unpack, keyRing, derive } = require('ara-network/keys')
 const { info, warn, error } = require('ara-console')('identity-archiver')
 const { createChannel } = require('ara-network/discovery/channel')
@@ -8,7 +9,6 @@ const { Handshake } = require('ara-network/handshake')
 const { readFile } = require('fs')
 const { resolve } = require('path')
 const multidrive = require('multidrive')
-const coalesce = require('defined')
 const inquirer = require('inquirer')
 const { DID } = require('did-uri')
 const crypto = require('ara-crypto')
@@ -18,7 +18,6 @@ const rimraf = require('rimraf')
 const debug = require('debug')('ara:network:node:identity-archiver')
 const pify = require('pify')
 const pump = require('pump')
-const pkg = require('./package.json')
 const net = require('net')
 const fs = require('fs')
 const rc = require('./rc')()
@@ -30,7 +29,6 @@ const CFS_UPDATE_TIMEOUT = 5000
 let channel = null
 
 async function start(conf) {
-
   if (channel) {
     return false
   }
@@ -220,11 +218,11 @@ async function start(conf) {
         const list = drives.list()
         for (const drive of list) {
           if (0 === Buffer.compare(drive.key, key)) {
-            let cfs = await createCFS(config)
+            const oldCFS = await createCFS(config)
             try {
-              await pify(drives.close)(cfs.key)
+              await pify(drives.close)(oldCFS.key)
               await pify(rimraf)(resolve(
-                cfs.partitions.home.storage,
+                oldCFS.partitions.home.storage,
                 '..'
               ))
             } catch (err0) {
