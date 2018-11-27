@@ -238,7 +238,7 @@ async function start(conf) {
           }
         }
       }
-      //await destroyCFS(config)
+
       cfs = await createCFS(config)
     } catch (err) {
       debug(err)
