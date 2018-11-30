@@ -1,6 +1,8 @@
 /* eslint-disable no-await-in-loop */
+const { discoveryKey: createHypercoreDiscoverKey } = require('hypercore-crypto')
 const { unpack, keyRing, derive } = require('ara-network/keys')
 const { info, warn, error } = require('ara-console')('identity-archiver')
+const { createCFSKeyPath } = require('cfsnet/key-path')
 const { createChannel } = require('ara-network/discovery/channel')
 const { createSwarm } = require('ara-network/discovery')
 const { destroyCFS } = require('cfsnet/destroy')
@@ -23,6 +25,8 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 const { setInstance } = require('./instance')
+const lru = require('lru-cache')
+const os = require('os')
 
 const CFS_UPDATE_TIMEOUT = 5000
 
@@ -93,24 +97,47 @@ async function start(conf) {
   // ensure the node store root directory exists
   await pify(mkdirp)(rc.network.identity.archiver.data.nodes.store)
 
-  const gateway = createSwarm({ })
+  const gateway = createSwarm({
+    maxConnections: os.cpus().length
+  })
 
+  const cache = lru({
+    dispose(discoveryKey, cfs) {
+      console.log("DISPOSE CAll")
+      //destroyCFS({ cfs })
+    }
+  })
+
+  let connections = 0
+  let max = os.cpus().length
   gateway.on('error', onerror)
   gateway.on('peer', onpeer)
-  gateway.on('connection', (connection, peer) => {
+  gateway.on('connection', async (connection, peer) => {
+    if (connections++ >= max) {
+      return connection.end()
+    }
+
+    connection.once('end', () => connections--)
     if (drives && peer) {
       if (peer.id !== gateway.id && (peer.id || peer.channel)) {
-        for (const cfs of drives.list()) {
-          if (cfs.discoveryKey) {
+        for (const drive of drives.list()) {
+          if (drive.discoveryKey) {
             const key = peer.channel || peer.id
-
-            if (0 === Buffer.compare(key, cfs.discoveryKey)) {
+            const discoveryKey = Buffer.from(drive.discoveryKey, 'hex')
+            if (0 === Buffer.compare(key, discoveryKey)) {
+              const cfs = cache.get(drive.discoveryKey) || await createCFS(drive)
+              cache.set(drive.discoveryKey, cfs)
+              console.log("CACHE Length:", cache.length)
               info('gateway lookup: %s', cfs.key.toString('hex'))
               const stream = cfs.replicate({ live: false })
-              return pump(connection, stream, connection, (err) => {
+              return pump(connection, stream, connection, async (err) => {
+                //process.nextTick(destroyCFS, { cfs })
+                //cache.del(drive.discoveryKey)
+                //cache.prune()
                 if (err) {
                   onerror(err)
                 } else {
+                  gateway.emit(cfs.discoveryKey.toString('hex'))
                   info(
                     'gateway connection: %s@%s (%s:%s)',
                     peer.id && peer.id.toString('hex'),
@@ -152,44 +179,41 @@ async function start(conf) {
 
   drives = await pify(multidrive)(store, oncreatecfs, onclosefs)
 
-  for (const cfs of drives.list()) {
-    if (cfs instanceof Error) {
-      throw cfs
+  for (const drive of drives.list()) {
+    if (drive instanceof Error) {
+      throw drive
     }
 
-    try {
-      await pify(fs.access)(resolve(
-        cfs.partitions.home.storage,
-        'content',
-        'data'
-      ))
+    //console.log(drive)
+    const storage = createCFSKeyPath(drive)
 
-      await join(cfs)
+    try {
+      console.log(await pify(fs.readdir)(resolve(storage, 'home', 'content')))
+      await pify(fs.access)(resolve(storage, 'home', 'content', 'data'))
+      await join(drive)
+      //await pify(drives.create)(drive)
     } catch (err) {
       debug(err)
       warn(
         'Corrupt or invalid identity archive. Removing',
-        cfs.key.toString('hex')
+        drive.key.toString('hex')
       )
 
       try {
-        await pify(drives.close)(cfs.key)
-        await pify(rimraf)(resolve(
-          cfs.partitions.home.storage,
-          '..'
-        ))
+        //await pify(drives.close)(drive.key)
+        //await pify(rimraf)(storage)
       } catch (err0) {
         debug(err0)
         // eslint-disable-next-line function-paren-newline
         throw new Error(
-          `Failed to remove ${cfs.key.toString('hex').slice}. ` +
+          `Failed to remove ${drive.key.toString('hex')}. ` +
           'Please remove manually before running.')
       }
     }
   }
 
   async function join(cfs) {
-    return pify((done) => {
+    return pify(async (done) => {
       process.nextTick(() => {
         gateway.join(cfs.discoveryKey, { announce: true })
         process.nextTick(done, null)
@@ -202,6 +226,15 @@ async function start(conf) {
     })()
   }
 
+  async function watch(cfs) {
+    return pify(async (done) => {
+      const discoveryKey = Buffer.isBuffer(cfs.discoveryKey)
+        ? cfs.discoveryKey.toString('hex')
+        : cfs.discoveryKey
+      gateway.once(discoveryKey, done)
+    })()
+  }
+
   async function oncreatecfs(opts, done) {
     let cfs = null
     const id = Buffer.from(opts.id, 'hex').toString('hex')
@@ -209,56 +242,49 @@ async function start(conf) {
 
     try {
       const config = Object.assign({}, opts, {
+        discoveryKey: createHypercoreDiscoverKey(key),
         shallow: true,
         key,
         id,
       })
 
-      if (drives) {
-        const list = drives.list()
-        for (const drive of list) {
-          if (0 === Buffer.compare(drive.key, key)) {
-            const oldCFS = await createCFS(config)
-            try {
-              await pify(drives.close)(oldCFS.key)
-              await pify(rimraf)(resolve(
-                oldCFS.partitions.home.storage,
-                '..'
-              ))
-            } catch (err0) {
-              debug(err0)
-              // eslint-disable-next-line function-paren-newline
-              throw new Error(
-                `Failed to remove ${cfs.key.toString('hex').slice}. ` +
-                'Please remove manually before running.')
-            }
-            list.splice(list.indexOf(drive, 1))
-          }
-        }
-      }
-
-      cfs = await createCFS(config)
+console.log(config)
+      done(null, config)
+      // if (drives) {
+      //   const list = drives.list()
+      //   for (const drive of list) {
+      //     if (0 === Buffer.compare(drive.key, key)) {
+      //       try {
+      //         await pify(drives.close)(drive.key)
+      //         await pify(rimraf)(resolve(
+      //           drive.partitions.home.storage,
+      //           '..'
+      //         ))
+      //       } catch (err0) {
+      //         debug(err0)
+      //         // eslint-disable-next-line function-paren-newline
+      //         throw new Error(
+      //           `Failed to remove ${cfs.key.toString('hex').slice}. ` +
+      //           'Please remove manually before running.')
+      //       }
+      //       list.splice(list.indexOf(drive, 1))
+      //     }
+      //   }
+      // }
+      //
+      // cfs = await createCFS(config)
     } catch (err) {
       debug(err)
       done(err)
       return
     }
 
-    done(null, cfs)
+    //done(null, cfs)
   }
 
   async function onclosefs(cfs, done) {
     try {
-      await destroyCFS({ cfs })
-
-      if (gateway) {
-        try {
-          gateway.leave(cfs.discoveryKey)
-        } catch (err) {
-          void err
-        }
-      }
-
+      //await destroyCFS(cfs)
       done(null)
     } catch (err) {
       done(err)
@@ -337,7 +363,8 @@ async function start(conf) {
 
       const reader = handshake.createReadStream()
 
-      reader.on('data', async (data) => {
+      reader.once('data', async (data) => {
+        console.log('data......')
         const id = data.slice(64)
         const key = data.slice(0, 32)
         const result = await archive(id, key)
@@ -358,14 +385,16 @@ async function start(conf) {
 
       async function archive(id, key) {
         const pending = []
-        const cfs = await pify(drives.create)({
+        const config = await pify(drives.create)({
           id: id.toString('hex'),
           key: key.toString('hex')
         })
 
-        await join(cfs)
-
         info('Got archive: key=%s', key.toString('hex'))
+        await join(config)
+        await watch(config)
+
+        const cfs = cache.get(config.discoveryKey) || await createCFS(config)
 
         try {
           info('Accessing %s for "did:ara:%s"', cfs.HOME, cfs.key.toString('hex'))
