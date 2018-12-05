@@ -137,13 +137,11 @@ async function start(conf) {
     drives.list(async function (err, values) {
       for (const node of values) {
         const drive = JSON.parse(node.value)
-        console.log(drive)
         const storage = createCFSKeyPath(drive)
 
         try {
-          info("Checking %s validity", storage)
           await pify(fs.access)(resolve(storage, 'home', 'content', 'data'))
-          info("Validation successful. Joining swarm")
+          info("Joining swarm for did:ara:%s ", drive.key)
           gateway.join(Buffer.from(drive.discoveryKey, 'hex'), { announce: true})
         } catch (err) {
           debug(err)
@@ -173,7 +171,6 @@ async function start(conf) {
         try {
           const node = await pify(drives.get.bind(drives))(discoveryKey)
           const config = JSON.parse(node.value)
-          console.log(config)
           const cfs = cache.get(discoveryKey) || await createCFS(config)
           const stream = cfs.replicate()
 
@@ -181,7 +178,7 @@ async function start(conf) {
             cache.set(discoveryKey, cfs)
           }
 
-          info('gateway lookup: %s', cfs.key.toString('hex'))
+          info('gateway lookup for %s', cfs.key.toString('hex'))
 
           return pump(connection, stream, connection, async (err) => {
             if (err) {
