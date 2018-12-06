@@ -150,13 +150,13 @@ async function start(conf) {
             storage
           )
           try {
-            await del(drive.key)
+            await del(node.key)
             await pify(rimraf)(storage)
           } catch (err0) {
             debug(err0)
             // eslint-disable-next-line function-paren-newline
             throw new Error(
-              `Failed to remove ${drive.key}. ` +
+              `Failed to remove ${node.key}. ` +
               'Please remove manually before running.')
           }
         }
@@ -242,16 +242,15 @@ async function start(conf) {
     }
   }
 
-  async function del(cfs, done) {
-
+  async function del(key, done) {
     return pify(async (done) => {
-      try {
-        drives.del(cfs, function (err) {
-        })
-        done(null)
-      } catch (err) {
-        done(err)
-      }
+      drives.del(key, function (err) {
+        if (err) {
+          done(err)
+        } else {
+          done()
+        }
+      })
     })()
   }
 
