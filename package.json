@@ -1,5 +1,5 @@
 {
-  "name": "ara-network-node-identity-archiver",
+  "name": "ara-identity-archiver",
   "version": "0.37.0",
   "description": "An ARA network node that archives identities in a network",
   "main": "index.js",
@@ -57,10 +57,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AraBlocks/ara-network-node-identity-archiver.git"
+    "url": "git+https://github.com/AraBlocks/ara-identity-archiver.git"
   },
   "bugs": {
-    "url": "https://github.com/AraBlocks/ara-network-node-identity-archiver/issues"
+    "url": "https://github.com/AraBlocks/ara-identity-archiver/issues"
   },
-  "homepage": "https://github.com/AraBlocks/ara-network-node-identity-archiver#readme"
+  "homepage": "https://github.com/AraBlocks/ara-identity-archiver#readme"
 }
