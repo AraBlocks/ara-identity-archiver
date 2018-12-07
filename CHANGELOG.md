@@ -1,20 +1,21 @@
-# [0.38.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.37.0...0.38.0) (2018-12-06)
+## [0.38.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.37.0...0.38.1) (2018-12-07)
 
 
 ### Bug Fixes
 
-* **index.js:** remove redundant destroy call ([ed4b845](https://github.com/AraBlocks/ara-identity-archiver/commit/ed4b845))
-* Linting fixes ([59f079b](https://github.com/AraBlocks/ara-identity-archiver/commit/59f079b))
-* **start.js:** Archiver refactor V2 ([c35b762](https://github.com/AraBlocks/ara-identity-archiver/commit/c35b762))
-* **start.js:** Archiver Refactor V2 :) ([8abdca0](https://github.com/AraBlocks/ara-identity-archiver/commit/8abdca0))
-* **start.js:** Remove redundant code ([68da0f7](https://github.com/AraBlocks/ara-identity-archiver/commit/68da0f7))
-* **start.js:** Remove redundant destroy call ([af2e5c8](https://github.com/AraBlocks/ara-identity-archiver/commit/af2e5c8))
-* **start.js:** Removing corrupt id's ([642dc0b](https://github.com/AraBlocks/ara-identity-archiver/commit/642dc0b))
+* **index.js:** remove redundant destroy call ([15a785d](https://github.com/AraBlocks/ara-identity-archiver/commit/15a785d))
+* Linting fixes ([0d6c066](https://github.com/AraBlocks/ara-identity-archiver/commit/0d6c066))
+* **start.js:** Archiver refactor V2 ([14a5515](https://github.com/AraBlocks/ara-identity-archiver/commit/14a5515))
+* **start.js:** Archiver Refactor V2 :) ([f2bd5ae](https://github.com/AraBlocks/ara-identity-archiver/commit/f2bd5ae))
+* **start.js:** Remove redundant code ([c5aaec7](https://github.com/AraBlocks/ara-identity-archiver/commit/c5aaec7))
+* **start.js:** Remove redundant destroy call ([b0dd15e](https://github.com/AraBlocks/ara-identity-archiver/commit/b0dd15e))
+* **start.js:** Removing corrupt id's ([5d1be6b](https://github.com/AraBlocks/ara-identity-archiver/commit/5d1be6b))
 
 
 ### Features
 
-* Archiver refactor with cache ([1995dc0](https://github.com/AraBlocks/ara-identity-archiver/commit/1995dc0))
+* Archiver refactor with cache ([adeef77](https://github.com/AraBlocks/ara-identity-archiver/commit/adeef77))
+* **configure.js:** Cascade property values from ararc as defaults ([3efe4f8](https://github.com/AraBlocks/ara-identity-archiver/commit/3efe4f8))
 
 
 
