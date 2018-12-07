@@ -1,4 +1,17 @@
-## [0.38.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.37.0...0.38.1) (2018-12-07)
+## [0.38.2](https://github.com/AraBlocks/ara-identity-archiver/compare/0.38.1...0.38.2) (2018-12-07)
+
+
+
+## [0.38.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.38.0...0.38.1) (2018-12-07)
+
+
+### Features
+
+* **configure.js:** Cascade property values from ararc as defaults ([3efe4f8](https://github.com/AraBlocks/ara-identity-archiver/commit/3efe4f8))
+
+
+
+# [0.38.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.37.0...0.38.0) (2018-12-06)
 
 
 ### Bug Fixes
@@ -15,7 +28,6 @@
 ### Features
 
 * Archiver refactor with cache ([adeef77](https://github.com/AraBlocks/ara-identity-archiver/commit/adeef77))
-* **configure.js:** Cascade property values from ararc as defaults ([3efe4f8](https://github.com/AraBlocks/ara-identity-archiver/commit/3efe4f8))
 
 
 

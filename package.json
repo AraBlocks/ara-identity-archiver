@@ -1,6 +1,6 @@
 {
   "name": "ara-identity-archiver",
-  "version": "0.38.1",
+  "version": "0.38.2",
   "description": "An ARA network node that archives identities in a network",
   "main": "index.js",
   "scripts": {
