@@ -25,6 +25,7 @@ const fs = require('fs')
 const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
+const locks = {}
 let channel = null
 let drives = null
 
@@ -208,6 +209,16 @@ async function start(conf) {
     debug(err)
   })
 
+  async function lock(id) {
+    if (locks[id]) {
+      await locks[id]
+    }
+
+    let unlock = null
+    locks[id] = new Promise((done) => { unlock = done })
+    return unlock
+  }
+
   async function put(opts) {
     const id = Buffer.from(opts.id, 'hex').toString('hex')
     const key = Buffer.from(opts.key, 'hex').toString('hex')
@@ -315,17 +326,41 @@ async function start(conf) {
       info('Got okay from peer: signature=%s', okay.toString('hex'))
 
       socket.pause()
+
+      let cfs = null
+      const id = handshake.state.remote.publicKey.toString('hex')
+      const key = handshake.state.remote.publicKey
+      const keyPath = createCFSKeyPath({ id })
+
+      socket.once('error', () => { closed = true })
+      socket.once('closed', () => { closed = true })
+
+      const unlock = await lock(id)
+
       await put({
         id: handshake.state.remote.publicKey.toString('hex'),
         key: handshake.state.remote.publicKey.toString('hex')
       })
 
-      const cfs = await createCFS({
-        id: handshake.state.remote.publicKey.toString('hex'),
-        key: handshake.state.remote.publicKey
-      })
+      if (closed) {
+        return
+      }
 
-      pump(socket, cfs.replicate(), socket, async (err) => {
+      try {
+        await pify(rimraf)(keyPath)
+      } catch (err) {
+        debug(err)
+      }
+
+      try {
+        cfs = await createCFS({ id, key })
+      } catch (err) {
+        debug(err)
+        socket.destroy(err)
+        return
+      }
+
+      pump(socket, cfs.replicate({ live: true }), socket, async (err) => {
         if (err) {
           onerror(err)
         } else {
@@ -333,14 +368,14 @@ async function start(conf) {
             const files = await cfs.readdir('.')
             info('Did sync %d files :', files.length, files)
             info('Archiving complete for did:ara:%s', handshake.state.remote.publicKey.toString('hex'))
+            gateway.join(cfs.discoveryKey, { announce: true })
           } catch (err0) {
             debug(err0)
-            await cfs.close()
-            return
           }
         }
 
-        gateway.join(cfs.discoveryKey, { announce: true })
+        await unlock()
+        cache.del(cfs.discoveryKey.toString('hex'))
         await cfs.close()
       })
 
