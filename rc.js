@@ -6,7 +6,7 @@ const defaults = () => ({
   network: {
     identity: {
       archiver: {
-        port: 8000,
+        port: 0,
         data: {
           root: resolve(rc().data.root, 'identities', 'archiver'),
           nodes: {
