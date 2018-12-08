@@ -1,3 +1,12 @@
+# [0.40.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.39.0...0.40.0) (2018-12-08)
+
+
+### Bug Fixes
+
+* **start.js:** Handle updates by purging previous instance and locking IO ([99b545c](https://github.com/AraBlocks/ara-identity-archiver/commit/99b545c))
+
+
+
 # [0.39.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.38.2...0.39.0) (2018-12-08)
 
 
