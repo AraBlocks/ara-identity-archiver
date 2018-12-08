@@ -1,3 +1,7 @@
+# [0.39.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.38.2...0.39.0) (2018-12-08)
+
+
+
 ## [0.38.2](https://github.com/AraBlocks/ara-identity-archiver/compare/0.38.1...0.38.2) (2018-12-07)
 
 
