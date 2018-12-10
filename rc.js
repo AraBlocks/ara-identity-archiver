@@ -18,11 +18,4 @@ const defaults = () => ({
   }
 })
 
-module.exports = conf => rc(extend(
-  true,
-  {},
-  require('ara-identity/rc')(),
-  require('ara-network/rc')(),
-  defaults(),
-  conf
-))
+module.exports = conf => rc(extend(true, {}, defaults(), conf))
