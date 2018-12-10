@@ -1,3 +1,12 @@
+## [0.40.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.40.0...0.40.1) (2018-12-10)
+
+
+### Bug Fixes
+
+* **start.js:** Destroy stream when finished, handle loopback replications ([8728619](https://github.com/AraBlocks/ara-identity-archiver/commit/8728619))
+
+
+
 # [0.40.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.39.0...0.40.0) (2018-12-08)
 
 
