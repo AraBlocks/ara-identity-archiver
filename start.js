@@ -95,12 +95,13 @@ async function start(conf) {
   info('discovery key:', discoveryKey.toString('hex'))
 
   try {
-    await pify(fs.access)(rc.network.identity.archiver.data.nodes.store)
-    const stat = await pify(fs.stat)(rc.network.identity.archiver.data.nodes.store)
+    const storePath = rc.network.identity.archiver.data.nodes.store
+    await pify(fs.access)(storePath)
+    const stat = await pify(fs.stat)(storePath)
     if (stat.isFile()) {
       // eslint-disable-next-line function-paren-newline
       throw new TypeError(
-        `Expecting '${rc.network.identity.archiver.data.nodes.store}' ` +
+        `Expecting '${storePath}' ` +
         'to be a directory, but it is a file. Please remove it and try again.')
     }
   } catch (err) {
@@ -162,15 +163,25 @@ async function start(conf) {
     if (drives && peer) {
       if (peer.id !== gateway.id && (peer.id || peer.channel)) {
         // eslint-disable-next-line no-shadow
-        const discoveryKey = (peer.channel || peer.id).toString('hex')
+        const channel = (peer.channel || peer.id)
         try {
-          const node = await pify(drives.get.bind(drives))(discoveryKey)
+          const peerDiscoveryKey = channel.toString('hex')
+
+          if (
+            true === Buffer.isBuffer(channel) &&
+            0 !== Buffer.compare(channel, gateway.id)
+          ) {
+            debug('Skipping loopback replication for channel:', channel.toString('hex'))
+            return connection.end()
+          }
+
+          const node = await pify(drives.get.bind(drives))(peerDiscoveryKey)
           const config = JSON.parse(node.value)
-          const cfs = cache.get(discoveryKey) || await createCFS(config)
+          const cfs = cache.get(peerDiscoveryKey) || await createCFS(config)
           const stream = cfs.replicate()
 
-          if (!cache.has(discoveryKey)) {
-            cache.set(discoveryKey, cfs)
+          if (!cache.has(peerDiscoveryKey)) {
+            cache.set(peerDiscoveryKey, cfs)
           }
 
           info('gateway lookup for %s', cfs.key.toString('hex'))
@@ -360,7 +371,8 @@ async function start(conf) {
         return
       }
 
-      pump(socket, cfs.replicate({ live: true }), socket, async (err) => {
+      const stream = cfs.replicate({ live: true })
+      pump(socket, stream, socket, async (err) => {
         if (err) {
           onerror(err)
         } else {
@@ -374,6 +386,7 @@ async function start(conf) {
           }
         }
 
+        stream.destroy()
         await unlock()
         cache.del(cfs.discoveryKey.toString('hex'))
         await cfs.close()
