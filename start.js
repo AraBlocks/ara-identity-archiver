@@ -169,7 +169,7 @@ async function start(conf) {
 
           if (
             true === Buffer.isBuffer(channel) &&
-            0 !== Buffer.compare(channel, gateway.id)
+            0 === Buffer.compare(channel, gateway.id)
           ) {
             debug('Skipping loopback replication for channel:', channel.toString('hex'))
             return connection.end()
