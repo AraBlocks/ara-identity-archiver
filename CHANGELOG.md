@@ -1,3 +1,12 @@
+## [0.40.2](https://github.com/AraBlocks/ara-identity-archiver/compare/0.40.1...0.40.2) (2018-12-10)
+
+
+### Bug Fixes
+
+* **start.js:** Fix equality typo ([8bf2098](https://github.com/AraBlocks/ara-identity-archiver/commit/8bf2098))
+
+
+
 ## [0.40.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.40.0...0.40.1) (2018-12-10)
 
 
