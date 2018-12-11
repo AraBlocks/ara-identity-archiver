@@ -26,6 +26,7 @@ const rc = require('./rc')()
 const ss = require('ara-secret-storage')
 
 const locks = {}
+
 let channel = null
 let drives = null
 
@@ -164,8 +165,13 @@ async function start(conf) {
       if (peer.id !== gateway.id && (peer.id || peer.channel)) {
         // eslint-disable-next-line no-shadow
         const channel = (peer.channel || peer.id)
+        let peerDiscoveryKey = null
         try {
-          const peerDiscoveryKey = channel.toString('hex')
+          if (32 === channel.length) {
+            peerDiscoveryKey = channel.toString('hex')
+          } else {
+            peerDiscoveryKey = channel.slice(3).slice(0, 32).toString('hex')
+          }
 
           if (
             true === Buffer.isBuffer(channel) &&
@@ -178,11 +184,12 @@ async function start(conf) {
           const node = await pify(drives.get.bind(drives))(peerDiscoveryKey)
           const config = JSON.parse(node.value)
           const cfs = cache.get(peerDiscoveryKey) || await createCFS(config)
-          const stream = cfs.replicate()
 
           if (!cache.has(peerDiscoveryKey)) {
             cache.set(peerDiscoveryKey, cfs)
           }
+
+          const stream = cfs.replicate()
 
           info('gateway lookup for %s', cfs.key.toString('hex'))
 
@@ -373,11 +380,23 @@ async function start(conf) {
 
       const stream = cfs.replicate({ live: true })
       pump(socket, stream, socket, async (err) => {
+        const files = []
+        let cwd = '/home'
+
         if (err) {
           onerror(err)
         } else {
           try {
-            const files = await cfs.readdir('.')
+            await visit(await cfs.readdir(cwd))
+            const reads = []
+
+            for (const file of files) {
+              info('Reading file: %s', file)
+              reads.push(cfs.readFile(file))
+            }
+
+            await Promise.all(reads)
+
             info('Did sync %d files :', files.length, files)
             info('Archiving complete for did:ara:%s', handshake.state.remote.publicKey.toString('hex'))
             gateway.join(cfs.discoveryKey, { announce: true })
@@ -390,6 +409,22 @@ async function start(conf) {
         await unlock()
         cache.del(cfs.discoveryKey.toString('hex'))
         await cfs.close()
+
+        async function visit(entries) {
+          const pwd = cwd
+          for (const file of entries) {
+            // eslint-disable-next-line no-shadow
+            const path = `${cwd}/${file}`
+            const stat = await cfs.stat(path)
+            if (stat.isFile()) {
+              files.push(path)
+            } else if (stat.isDirectory()) {
+              cwd = path
+              await visit(await cfs.readdir(path))
+              cwd = pwd
+            }
+          }
+        }
       })
 
       socket.resume()
