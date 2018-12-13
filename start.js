@@ -165,13 +165,8 @@ async function start(conf) {
       if (peer.id !== gateway.id && (peer.id || peer.channel)) {
         // eslint-disable-next-line no-shadow
         const channel = (peer.channel || peer.id)
-        let peerDiscoveryKey = null
         try {
-          if (32 === channel.length) {
-            peerDiscoveryKey = channel.toString('hex')
-          } else {
-            peerDiscoveryKey = channel.slice(3).slice(0, 32).toString('hex')
-          }
+          const peerDiscoveryKey = channel.toString('hex')
 
           if (
             true === Buffer.isBuffer(channel) &&
