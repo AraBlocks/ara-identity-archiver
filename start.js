@@ -186,13 +186,13 @@ async function start(conf) {
 
           const stream = cfs.replicate()
 
-          info('gateway lookup for %s', cfs.key.toString('hex'))
+          debug('gateway lookup for %s', cfs.key.toString('hex'))
 
           return pump(connection, stream, connection, async (err) => {
             if (err) {
               onerror(err)
             } else {
-              info(
+              debug(
                 'gateway connection: %s@%s (%s:%s)',
                 peer.id && peer.id.toString('hex'),
                 peer.channel && peer.channel.toString('hex'),
