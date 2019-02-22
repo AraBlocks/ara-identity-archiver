@@ -286,6 +286,7 @@ async function start(conf) {
 
   function onconnection(socket) {
     const kp = derive({ secretKey, name: conf.network })
+    const now = Date.now()
     const handshake = new Handshake({
       publicKey: kp.publicKey,
       secretKey: kp.secretKey,
@@ -343,7 +344,6 @@ async function start(conf) {
       let cfs = null
       const id = handshake.state.remote.publicKey.toString('hex')
       const key = handshake.state.remote.publicKey
-      const keyPath = createCFSKeyPath({ id })
 
       socket.once('error', () => { closed = true })
       socket.once('closed', () => { closed = true })
@@ -360,12 +360,6 @@ async function start(conf) {
       }
 
       try {
-        await pify(rimraf)(keyPath)
-      } catch (err) {
-        debug(err)
-      }
-
-      try {
         cfs = await createCFS({ id, key })
       } catch (err) {
         debug(err)
@@ -373,7 +367,7 @@ async function start(conf) {
         return
       }
 
-      const stream = cfs.replicate({ live: true })
+      const stream = cfs.replicate({ })
       pump(socket, stream, socket, async (err) => {
         const files = []
         let cwd = '/home'
@@ -412,7 +406,9 @@ async function start(conf) {
             const path = `${cwd}/${file}`
             const stat = await cfs.stat(path)
             if (stat.isFile()) {
-              files.push(path)
+              if (stat.ctime > now) {
+                files.push(path)
+              }
             } else if (stat.isDirectory()) {
               cwd = path
               await visit(await cfs.readdir(path))
