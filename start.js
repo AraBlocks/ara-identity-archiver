@@ -242,6 +242,7 @@ async function start(conf) {
       const config = Object.assign({}, opts, {
         discoveryKey: discoveryKey.toString('hex'),
         shallow: true,
+        latest: true,
         key,
         id,
       })
@@ -250,8 +251,9 @@ async function start(conf) {
         drives.put(config.discoveryKey, JSON.stringify(config), (err, node) => {
           if (err) {
             rej(err)
+          } else {
+            res(node.value)
           }
-          res(node.value)
         })
       })
     } catch (err) {
