@@ -1,3 +1,12 @@
+## [0.41.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.41.0...0.41.1) (2019-02-22)
+
+
+### Bug Fixes
+
+* **start.js:** Ensure 'latest' mode is set ([50b552b](https://github.com/AraBlocks/ara-identity-archiver/commit/50b552b))
+
+
+
 # [0.41.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.40.6...0.41.0) (2019-02-22)
 
 
