@@ -1,3 +1,7 @@
+# [0.42.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.41.1...0.42.0) (2019-03-15)
+
+
+
 ## [0.41.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.41.0...0.41.1) (2019-02-22)
 
 
@@ -77,12 +81,12 @@
 ### Bug Fixes
 
 * **index.js:** remove redundant destroy call ([15a785d](https://github.com/AraBlocks/ara-identity-archiver/commit/15a785d))
-* Linting fixes ([0d6c066](https://github.com/AraBlocks/ara-identity-archiver/commit/0d6c066))
 * **start.js:** Archiver refactor V2 ([14a5515](https://github.com/AraBlocks/ara-identity-archiver/commit/14a5515))
 * **start.js:** Archiver Refactor V2 :) ([f2bd5ae](https://github.com/AraBlocks/ara-identity-archiver/commit/f2bd5ae))
 * **start.js:** Remove redundant code ([c5aaec7](https://github.com/AraBlocks/ara-identity-archiver/commit/c5aaec7))
-* **start.js:** Remove redundant destroy call ([b0dd15e](https://github.com/AraBlocks/ara-identity-archiver/commit/b0dd15e))
 * **start.js:** Removing corrupt id's ([5d1be6b](https://github.com/AraBlocks/ara-identity-archiver/commit/5d1be6b))
+* Linting fixes ([0d6c066](https://github.com/AraBlocks/ara-identity-archiver/commit/0d6c066))
+* **start.js:** Remove redundant destroy call ([b0dd15e](https://github.com/AraBlocks/ara-identity-archiver/commit/b0dd15e))
 
 
 ### Features
