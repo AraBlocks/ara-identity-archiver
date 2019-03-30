@@ -8,6 +8,7 @@ const { createSwarm } = require('ara-network/discovery')
 const { setInstance } = require('./instance')
 const { createCFS } = require('cfsnet/create')
 const { Handshake } = require('ara-network/handshake')
+const { Identity } = require('ara-identity/protobuf/messages')
 const { readFile } = require('fs')
 const { resolve } = require('path')
 const inquirer = require('inquirer')
@@ -362,63 +363,90 @@ async function start(conf) {
       }
 
       try {
-        cfs = await createCFS({ id, key })
+        cfs = await createCFS({ id, key, sparse: true })
       } catch (err) {
         debug(err)
         socket.destroy(err)
         return
       }
 
-      const stream = cfs.replicate({ })
-      pump(socket, stream, socket, async (err) => {
-        const files = []
-        let cwd = '/home'
+      const stream = cfs.replicate({
+        download: true,
+        upload: false,
+        live: false,
+      })
 
+      pump(socket, stream, socket, async (err) => {
         if (err) {
           onerror(err)
-        } else {
-          try {
-            await visit(await cfs.readdir(cwd))
-            const reads = []
-
-            for (const file of files) {
-              info('Reading file: %s', file)
-              reads.push(cfs.readFile(file))
-            }
-
-            await Promise.all(reads)
-
-            info('Did sync %d files :', files.length, files)
-            info('Archiving complete for did:ara:%s', handshake.state.remote.publicKey.toString('hex'))
-            gateway.join(cfs.discoveryKey, { announce: true })
-          } catch (err0) {
-            debug(err0)
-          }
-        }
-
-        stream.destroy()
-        await unlock()
-        cache.del(cfs.discoveryKey.toString('hex'))
-        await cfs.close()
-
-        async function visit(entries) {
-          const pwd = cwd
-          for (const file of entries) {
-            // eslint-disable-next-line no-shadow
-            const path = `${cwd}/${file}`
-            const stat = await cfs.stat(path)
-            if (stat.isFile()) {
-              if (stat.ctime > now) {
-                files.push(path)
-              }
-            } else if (stat.isDirectory()) {
-              cwd = path
-              await visit(await cfs.readdir(path))
-              cwd = pwd
-            }
-          }
         }
       })
+
+      const whitelist = new Set(rc.network.identity.archiver.files.whitelist)
+      const blacklist = new Set(rc.network.identity.archiver.files.blacklist)
+
+      const files = []
+      const reads = []
+      let cwd = '/home'
+
+      whitelist.add('/home/ddo.json')
+      whitelist.add('/home/identity')
+      whitelist.add('/home/keystore/ara')
+      whitelist.add('/home/keystore/eth')
+
+      try {
+        const packedIdentity = Identity.decode(await cfs.readFile('identity'))
+        const { proof } = packedIdentity
+        const digest = Identity.encode({
+          files: packedIdentity.files,
+          did: packedIdentity.did,
+          key: packedIdentity.key,
+        })
+
+        const verified = crypto.verify(proof.signature, digest, key)
+
+        if (true !== verified) {
+          throw new Error('Identity buffer failed signature failed verification')
+        }
+
+        await visit(await cfs.readdir(cwd))
+
+        for (const file of files) {
+          info('Reading file: %s', file)
+          reads.push(cfs.readFile(file))
+        }
+
+        await Promise.all(reads)
+
+        info('Did sync %d files :', files.length, files)
+        info('Archiving complete for did:ara:%s', handshake.state.remote.publicKey.toString('hex'))
+        gateway.join(cfs.discoveryKey, { announce: true })
+      } catch (err0) {
+        debug(err0)
+      }
+
+      stream.destroy()
+      await unlock()
+      cache.del(cfs.discoveryKey.toString('hex'))
+      await cfs.close()
+
+      async function visit(entries) {
+        const pwd = cwd
+        for (const file of entries) {
+          // eslint-disable-next-line no-shadow
+          const path = `${cwd}/${file}`
+          const stat = await cfs.stat(path)
+          if (stat.isFile()) {
+            if ((false === path in blacklist) && path in whitelist) {
+              files.push(path)
+            }
+          } else if (stat.isDirectory()) {
+            cwd = path
+            await visit(await cfs.readdir(path))
+            cwd = pwd
+          }
+        }
+      }
 
       socket.resume()
     }
