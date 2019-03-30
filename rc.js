@@ -7,6 +7,10 @@ const defaults = () => ({
     identity: {
       archiver: {
         port: 0,
+        files: {
+          whitelist: [],
+          blacklist: [],
+        },
         data: {
           root: resolve(rc().data.root, 'identities', 'archiver'),
           nodes: {
