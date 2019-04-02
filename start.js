@@ -297,7 +297,6 @@ async function start(conf) {
 
   function onerror(err) {
     debug(err.stack || err)
-    //warn('error:', err.message)
   }
 
   function onconnection(socket) {
