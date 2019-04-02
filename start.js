@@ -381,7 +381,7 @@ async function start(conf) {
       let cwd = '/home'
       let stream = cfs.replicate({
         download: true,
-        upload: true,
+        upload: false,
         live: false,
       })
 
@@ -412,7 +412,9 @@ async function start(conf) {
         cache.del(cfs.discoveryKey.toString('hex'))
 
         if (null !== stream) {
+          stream.end()
           stream.destroy(err)
+          socket.destroy()
           stream = null
         }
 
@@ -467,24 +469,38 @@ async function start(conf) {
       }
 
       async function onhandshake() {
-        let request = null
+        // assume shallow by default
+        let request = { shallow: true }
 
         try {
-          request = Archive.decode(stream.remoteUserData)
+          const decoded = Archive.decode(stream.remoteUserData)
+          const { signature } = decoded
+          delete decoded.signature
+          const digest = crypto.blake2b(Archive.encode(decoded))
+          const verified = crypto.verify(
+            signature,
+            digest,
+            handshake.state.remote.publicKey
+          )
+
+          if (verified) {
+            request = decoded
+          }
         } catch (err) {
-          request = {}
           debug(err)
         }
+
+        debug('Archive request', request)
 
         whitelist.add('/home/ddo.json')
 
         try {
           if (true === request.shallow) {
             blacklist.add('/home/identity')
+            blacklist.add('/home/schema.proto')
             blacklist.add('/home/keystore/ara')
             blacklist.add('/home/keystore/eth')
           } else {
-
             let identityBuffer = null
             let verified = false
 
@@ -507,13 +523,18 @@ async function start(conf) {
                 key: packedIdentity.key,
               })
 
-              verified = crypto.verify(proof.signature, digest, key)
+              verified = crypto.verify(
+                proof.signature,
+                digest,
+                handshake.state.remote.publicKey
+              )
 
               if (true !== verified) {
                 throw new Error('Identity buffer failed signature failed verification')
               }
 
               whitelist.add('/home/identity')
+              whitelist.add('/home/schema.proto')
               whitelist.add('/home/keystore/ara')
               whitelist.add('/home/keystore/eth')
             }
@@ -541,7 +562,7 @@ async function start(conf) {
           debug(err0)
         }
 
-        return cleanup()
+        await cleanup()
       }
 
       socket.resume()
