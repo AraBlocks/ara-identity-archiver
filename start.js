@@ -1,14 +1,14 @@
 /* eslint-disable no-await-in-loop */
 const { discoveryKey: createHypercoreDiscoverKey } = require('hypercore-crypto')
 const { unpack, keyRing, derive } = require('ara-network/keys')
-const { info, warn } = require('ara-console')('identity-archiver')
+const { Identity, Archive } = require('ara-identity/protobuf/messages')
 const { createCFSKeyPath } = require('cfsnet/key-path')
 const { createChannel } = require('ara-network/discovery/channel')
 const { createSwarm } = require('ara-network/discovery')
 const { setInstance } = require('./instance')
+const { info, warn } = require('ara-console')('identity-archiver')
 const { createCFS } = require('cfsnet/create')
 const { Handshake } = require('ara-network/handshake')
-const { Identity } = require('ara-identity/protobuf/messages')
 const { readFile } = require('fs')
 const { resolve } = require('path')
 const inquirer = require('inquirer')
@@ -86,6 +86,11 @@ async function start(conf) {
 
       await cfs.close()
     }
+  })
+
+  channel.on('close', () => {
+    server.close()
+    gateway.destroy()
   })
 
   server.listen(conf.port, onlisten)
@@ -185,7 +190,11 @@ async function start(conf) {
             cache.set(peerDiscoveryKey, cfs)
           }
 
-          const stream = cfs.replicate()
+          const stream = cfs.replicate({
+            download: true,
+            upload: true,
+            live: false,
+          })
 
           debug('gateway lookup for %s', cfs.key.toString('hex'))
 
@@ -201,6 +210,8 @@ async function start(conf) {
                 peer.port
               )
             }
+
+            await cfs.close()
           })
         } catch (err) {
           debug(err)
@@ -241,25 +252,27 @@ async function start(conf) {
 
     try {
       const config = Object.assign({}, opts, {
+        sparseMetadata: true,
         discoveryKey: discoveryKey.toString('hex'),
         shallow: true,
         latest: true,
+        sparse: true,
         key,
         id,
       })
 
       return new Promise((res, rej) => {
-        drives.put(config.discoveryKey, JSON.stringify(config), (err, node) => {
+        drives.put(config.discoveryKey, JSON.stringify(config), (err) => {
           if (err) {
             rej(err)
           } else {
-            res(node.value)
+            res(config)
           }
         })
       })
     } catch (err) {
       debug(err)
-      return err
+      throw err
     }
   }
 
@@ -284,12 +297,11 @@ async function start(conf) {
 
   function onerror(err) {
     debug(err.stack || err)
-    warn('error:', err.message)
+    //warn('error:', err.message)
   }
 
   function onconnection(socket) {
     const kp = derive({ secretKey, name: conf.network })
-    const now = Date.now()
     const handshake = new Handshake({
       publicKey: kp.publicKey,
       secretKey: kp.secretKey,
@@ -344,37 +356,51 @@ async function start(conf) {
 
       socket.pause()
 
+      const key = handshake.state.remote.publicKey.toString('hex')
+      const id = key
       let cfs = null
-      const id = handshake.state.remote.publicKey.toString('hex')
-      const key = handshake.state.remote.publicKey
 
       socket.once('error', () => { closed = true })
       socket.once('closed', () => { closed = true })
 
       const unlock = await lock(id)
-
-      await put({
-        id: handshake.state.remote.publicKey.toString('hex'),
-        key: handshake.state.remote.publicKey.toString('hex')
-      })
+      const opts = await put({ id, key })
 
       if (closed) {
+        await cleanup()
         return
       }
 
       try {
-        cfs = await createCFS({ id, key, sparse: true })
+        cfs = await createCFS(opts)
       } catch (err) {
-        debug(err)
-        socket.destroy(err)
+        await cleanup(err)
         return
       }
 
-      const stream = cfs.replicate({
+      let cwd = '/home'
+      let stream = cfs.replicate({
         download: true,
-        upload: false,
+        upload: true,
         live: false,
       })
+
+      const whitelist = new Set(rc.network.identity.archiver.files.whitelist)
+      const blacklist = new Set(rc.network.identity.archiver.files.blacklist)
+
+      const regexify = s => new RegExp(`^${s}$`)
+      const matchesBlacklist = filename => [ ...blacklist ]
+        .map(regexify)
+        .some(regex => regex.test(filename))
+
+      const matchesWhitelist = filename => [ ...whitelist ]
+        .map(regexify)
+        .some(regex => regex.test(filename))
+
+      const files = []
+      const reads = []
+
+      stream.on('handshake', onhandshake)
 
       pump(socket, stream, socket, async (err) => {
         if (err) {
@@ -382,70 +408,140 @@ async function start(conf) {
         }
       })
 
-      const whitelist = new Set(rc.network.identity.archiver.files.whitelist)
-      const blacklist = new Set(rc.network.identity.archiver.files.blacklist)
+      async function cleanup(err) {
+        cache.del(cfs.discoveryKey.toString('hex'))
 
-      const files = []
-      const reads = []
-      let cwd = '/home'
-
-      whitelist.add('/home/ddo.json')
-      whitelist.add('/home/identity')
-      whitelist.add('/home/keystore/ara')
-      whitelist.add('/home/keystore/eth')
-
-      try {
-        const packedIdentity = Identity.decode(await cfs.readFile('identity'))
-        const { proof } = packedIdentity
-        const digest = Identity.encode({
-          files: packedIdentity.files,
-          did: packedIdentity.did,
-          key: packedIdentity.key,
-        })
-
-        const verified = crypto.verify(proof.signature, digest, key)
-
-        if (true !== verified) {
-          throw new Error('Identity buffer failed signature failed verification')
+        if (null !== stream) {
+          stream.destroy(err)
+          stream = null
         }
 
-        await visit(await cfs.readdir(cwd))
-
-        for (const file of files) {
-          info('Reading file: %s', file)
-          reads.push(cfs.readFile(file))
+        if (null !== cfs) {
+          await cfs.close()
         }
 
-        await Promise.all(reads)
-
-        info('Did sync %d files :', files.length, files)
-        info('Archiving complete for did:ara:%s', handshake.state.remote.publicKey.toString('hex'))
-        gateway.join(cfs.discoveryKey, { announce: true })
-      } catch (err0) {
-        debug(err0)
+        await unlock()
       }
 
-      stream.destroy()
-      await unlock()
-      cache.del(cfs.discoveryKey.toString('hex'))
-      await cfs.close()
+      async function waitForFile(filename) {
+        try {
+          await cfs.access(filename)
+        } catch (err) {
+          await Promise.race([
+            new Promise(cb => cfs.once('sync', cb)),
+            new Promise(cb => cfs.once('update', cb)),
+          ])
+        }
+      }
+
+      async function stat(filename) {
+        try {
+          return await cfs.stat(filename)
+        } catch (err) {
+          debug(err)
+          return null
+        }
+      }
 
       async function visit(entries) {
         const pwd = cwd
         for (const file of entries) {
-          // eslint-disable-next-line no-shadow
-          const path = `${cwd}/${file}`
-          const stat = await cfs.stat(path)
-          if (stat.isFile()) {
-            if ((false === path in blacklist) && path in whitelist) {
-              files.push(path)
+          const filename = resolve(cwd, file)
+
+          await waitForFile(filename)
+
+          const stats = await stat(filename)
+
+          if (stats) {
+            if (stats.isFile()) {
+              if (!matchesBlacklist(filename) && matchesWhitelist(filename)) {
+                files.push(filename)
+              }
+            } else if (stats.isDirectory()) {
+              cwd = filename
+              await visit(await cfs.readdir(filename))
+              cwd = pwd
             }
-          } else if (stat.isDirectory()) {
-            cwd = path
-            await visit(await cfs.readdir(path))
-            cwd = pwd
           }
         }
+      }
+
+      async function onhandshake() {
+        let request = null
+
+        try {
+          request = Archive.decode(stream.remoteUserData)
+        } catch (err) {
+          request = {}
+          debug(err)
+        }
+
+        whitelist.add('/home/ddo.json')
+
+        try {
+          if (true === request.shallow) {
+            blacklist.add('/home/identity')
+            blacklist.add('/home/keystore/ara')
+            blacklist.add('/home/keystore/eth')
+          } else {
+
+            let identityBuffer = null
+            let verified = false
+
+            // the identity file may not be present meaning the archive _could_
+            // be a shallow archive but the replication stream did not send an
+            // Archive message in the replication user data
+            try {
+              await waitForFile('/home/identity')
+              identityBuffer = await cfs.readFile('/home/identity')
+            } catch (err) {
+              debug(err)
+            }
+
+            if (null !== identityBuffer) {
+              const packedIdentity = Identity.decode(identityBuffer)
+              const { proof } = packedIdentity
+              const digest = Identity.encode({
+                files: packedIdentity.files,
+                did: packedIdentity.did,
+                key: packedIdentity.key,
+              })
+
+              verified = crypto.verify(proof.signature, digest, key)
+
+              if (true !== verified) {
+                throw new Error('Identity buffer failed signature failed verification')
+              }
+
+              whitelist.add('/home/identity')
+              whitelist.add('/home/keystore/ara')
+              whitelist.add('/home/keystore/eth')
+            }
+          }
+
+          await cfs.access(cwd)
+
+          try {
+            await visit([ ...whitelist ])
+          } catch (err) {
+            debug(err)
+          }
+
+          for (const file of files) {
+            info('Reading file: %s', file)
+            reads.push(cfs.readFile(file))
+          }
+
+          await Promise.all(reads)
+
+          info('Did sync %d files :', files.length, files)
+          info('Archiving complete for did:ara:%s', handshake.state.remote.publicKey.toString('hex'))
+          gateway.join(cfs.discoveryKey, { announce: true })
+        } catch (err0) {
+          debug(err0)
+        }
+
+        return cleanup()
       }
 
       socket.resume()
