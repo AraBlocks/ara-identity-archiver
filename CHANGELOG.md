@@ -1,3 +1,17 @@
+# [0.43.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.42.0...0.43.0) (2019-04-02)
+
+
+### Bug Fixes
+
+* **start.js:** Verify archive request and include 'schema.proto' ([4b08db0](https://github.com/AraBlocks/ara-identity-archiver/commit/4b08db0))
+
+
+### Features
+
+* **start.js:** Support 'Archive' remote user data message for proper shallow archive ([c415161](https://github.com/AraBlocks/ara-identity-archiver/commit/c415161))
+
+
+
 # [0.42.0](https://github.com/AraBlocks/ara-identity-archiver/compare/0.41.1...0.42.0) (2019-03-15)
 
 
@@ -81,12 +95,12 @@
 ### Bug Fixes
 
 * **index.js:** remove redundant destroy call ([15a785d](https://github.com/AraBlocks/ara-identity-archiver/commit/15a785d))
+* Linting fixes ([0d6c066](https://github.com/AraBlocks/ara-identity-archiver/commit/0d6c066))
 * **start.js:** Archiver refactor V2 ([14a5515](https://github.com/AraBlocks/ara-identity-archiver/commit/14a5515))
 * **start.js:** Archiver Refactor V2 :) ([f2bd5ae](https://github.com/AraBlocks/ara-identity-archiver/commit/f2bd5ae))
 * **start.js:** Remove redundant code ([c5aaec7](https://github.com/AraBlocks/ara-identity-archiver/commit/c5aaec7))
-* **start.js:** Removing corrupt id's ([5d1be6b](https://github.com/AraBlocks/ara-identity-archiver/commit/5d1be6b))
-* Linting fixes ([0d6c066](https://github.com/AraBlocks/ara-identity-archiver/commit/0d6c066))
 * **start.js:** Remove redundant destroy call ([b0dd15e](https://github.com/AraBlocks/ara-identity-archiver/commit/b0dd15e))
+* **start.js:** Removing corrupt id's ([5d1be6b](https://github.com/AraBlocks/ara-identity-archiver/commit/5d1be6b))
 
 
 ### Features
