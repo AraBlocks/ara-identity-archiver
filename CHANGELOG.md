@@ -1,3 +1,12 @@
+## [0.43.2](https://github.com/AraBlocks/ara-identity-archiver/compare/0.43.1...0.43.2) (2019-04-03)
+
+
+### Bug Fixes
+
+* **rc.js:** Fix rc extend order ([23a3c46](https://github.com/AraBlocks/ara-identity-archiver/commit/23a3c46))
+
+
+
 ## [0.43.1](https://github.com/AraBlocks/ara-identity-archiver/compare/0.43.0...0.43.1) (2019-04-02)
 
 
