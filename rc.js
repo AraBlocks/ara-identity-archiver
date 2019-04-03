@@ -22,4 +22,4 @@ const defaults = () => ({
   }
 })
 
-module.exports = conf => rc(extend(true, {}, defaults(), conf))
+module.exports = conf => extend(true, {}, defaults(), rc(conf))
