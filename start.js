@@ -211,7 +211,7 @@ async function start(conf) {
               )
             }
 
-            await cfs.close()
+            //await cfs.close()
           })
         } catch (err) {
           debug(err)
